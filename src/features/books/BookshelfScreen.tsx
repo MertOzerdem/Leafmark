@@ -185,9 +185,30 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
 
 function BookSpine({ book }: { book: BookshelfBook }) {
   const width = Math.max(36, Math.min(72, (book.book.pageCount ?? 300) * 0.095));
+  const isHorizontal = book.orientation === 'horizontal';
+  const spineHeight = isHorizontal ? 70 : 204;
+  const titleWidth = spineHeight - (isHorizontal ? 10 : 40);
   return (
     <View testID={`book-spine-${book.book.id}`} style={[styles.bookSpine, { backgroundColor: book.spineColor, width }, orientationStyle(book.orientation)]}>
-      <Text numberOfLines={4} style={[styles.spineTitle, { color: textColorOnSpine(book.spineColor) }, book.orientation === 'horizontal' && styles.horizontalTitle]}>{book.book.title}</Text>
+      <Text
+        testID={`spine-title-${book.book.id}`}
+        numberOfLines={isHorizontal ? 2 : 1}
+        ellipsizeMode="tail"
+        style={[
+          styles.spineTitle,
+          {
+            color: textColorOnSpine(book.spineColor),
+            width: titleWidth,
+            maxWidth: titleWidth,
+            flexShrink: 0,
+            left: (width - titleWidth) / 2,
+            top: (spineHeight - 20) / 2,
+          },
+          isHorizontal ? styles.horizontalTitle : styles.verticalSpineTitle,
+        ]}
+      >
+        {book.book.title}
+      </Text>
       <View style={styles.spineMark}><Text style={styles.spineMarkText}>{book.book.pageCount ?? '·'}</Text></View>
     </View>
   );
@@ -292,8 +313,9 @@ const styles = StyleSheet.create({
   draggable: { alignItems: 'center', justifyContent: 'flex-end', position: 'absolute', zIndex: 2 },
   selectedItem: { borderColor: colors.olive, borderRadius: 6, borderWidth: 2, padding: 2 },
   bookSpine: { alignItems: 'center', borderColor: '#5A5746', borderRadius: 5, borderWidth: 1, height: 204, justifyContent: 'center', overflow: 'hidden', padding: 4 },
-  spineTitle: { color: '#FFFCF2', fontFamily: 'Georgia', fontSize: 13, fontWeight: '700', textAlign: 'center', textShadowColor: '#3C392E', textShadowRadius: 3 },
-  horizontalTitle: { fontSize: 12 },
+  spineTitle: { color: '#FFFCF2', fontFamily: 'Georgia', fontSize: 12, fontWeight: '700', height: 20, lineHeight: 20, position: 'absolute', textAlign: 'center', textShadowColor: '#3C392E', textShadowRadius: 3 },
+  verticalSpineTitle: { transform: [{ rotate: '90deg' }] },
+  horizontalTitle: { fontSize: 9, lineHeight: 10, transform: [{ rotate: '-90deg' }] },
   spineMark: { backgroundColor: '#FFFCF2AA', borderRadius: 8, bottom: 4, paddingHorizontal: 4, position: 'absolute' },
   spineMarkText: { color: colors.ink, fontSize: 9 },
   decoration: { fontSize: 58, textAlign: 'center' },
