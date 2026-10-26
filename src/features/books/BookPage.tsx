@@ -394,7 +394,7 @@ function toBookDraft(book: Book): BookDraft {
 }
 
 function isImageUri(value: string | undefined): boolean {
-  return Boolean(value && (/^https?:\/\//i.test(value) || /^file:\/\//i.test(value)));
+  return Boolean(value && /^(https?:\/\/|file:\/\/|blob:|data:image\/)/i.test(value));
 }
 
 function splitLines(value: string): string[] {

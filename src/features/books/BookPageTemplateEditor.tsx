@@ -13,13 +13,16 @@ const types: Array<{ type: BookPageFieldType; label: string }> = [
 
 export function BookPageTemplateEditor({ onBack, pages }: { pages: BookPageRepository; onBack(): void }) {
   const [fields, setFields] = useState<BookPageField[]>([]);
+  const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const [label, setLabel] = useState('');
   const [type, setType] = useState<BookPageFieldType>('text');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setFields(await pages.listTemplateFields());
+      const templateFields = await pages.listTemplateFields();
+      setFields(templateFields);
+      setLabelDrafts(Object.fromEntries(templateFields.map((field) => [field.id, field.label])));
       setError(null);
     } catch {
       setError('Your Book page template could not be loaded.');
@@ -42,11 +45,17 @@ export function BookPageTemplateEditor({ onBack, pages }: { pages: BookPageRepos
   }
 
   async function updateLabel(field: BookPageField, nextLabel: string) {
-    if (!nextLabel.trim()) return;
+    const trimmedLabel = nextLabel.trim();
+    if (!trimmedLabel) {
+      setError('Enter a field name.');
+      return;
+    }
     try {
-      const updated = { ...field, label: nextLabel.trim() };
+      const updated = { ...field, label: trimmedLabel };
       await pages.updateField(updated);
       setFields((current) => current.map((entry) => entry.id === field.id ? updated : entry));
+      setLabelDrafts((current) => ({ ...current, [field.id]: trimmedLabel }));
+      setError(null);
     } catch {
       setError('The field name could not be saved.');
     }
@@ -83,10 +92,16 @@ export function BookPageTemplateEditor({ onBack, pages }: { pages: BookPageRepos
         <View key={field.id} style={styles.fieldRow}>
           <TextInput
             accessibilityLabel={`Template field ${index + 1}`}
-            defaultValue={field.label}
-            onEndEditing={(event) => { if (event.nativeEvent.text !== field.label) void updateLabel(field, event.nativeEvent.text); }}
+            onChangeText={(value) => setLabelDrafts((current) => ({ ...current, [field.id]: value }))}
             style={styles.input}
+            value={labelDrafts[field.id] ?? field.label}
           />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Save ${field.label} field name`}
+            onPress={() => void updateLabel(field, labelDrafts[field.id] ?? field.label)}
+            style={styles.smallAction}
+          ><Text style={styles.secondaryText}>Save field name</Text></Pressable>
           <Text style={styles.typeName}>{types.find((item) => item.type === field.type)?.label}</Text>
           <View style={styles.typeRow}>
             {types.map((item) => (

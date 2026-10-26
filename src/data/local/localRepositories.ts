@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 
 import type { AuthIdentity, ReaderProfileRepository } from '../../auth/contracts';
 import type { Book, BookDraft, TbrBook, TbrRepository } from '../../books/bookTypes';
@@ -244,8 +245,15 @@ function createReadingRepository(store: LocalBookStore): ReadingRepository {
 
 function createBookPageRepository(store: LocalBookStore, ownerSubject: string): BookPageRepository {
   return {
-    async listTemplateFields() { return store.fields.filter((field) => field.isTemplate).map(copyField); },
-    async listFields(bookId) { return store.fields.filter((field) => field.isTemplate || field.bookId === bookId).map(copyField); },
+    async listTemplateFields() {
+      return store.fields.filter((field) => field.isTemplate).sort(compareFieldPosition).map(copyField);
+    },
+    async listFields(bookId) {
+      return store.fields
+        .filter((field) => field.isTemplate || field.bookId === bookId)
+        .sort((left, right) => Number(right.isTemplate) - Number(left.isTemplate) || compareFieldPosition(left, right))
+        .map(copyField);
+    },
     async listValues(bookId) {
       return store.fields.flatMap((field) => {
         const value = store.values.get(`${bookId}:${field.id}`);
@@ -285,6 +293,12 @@ function createBookPageRepository(store: LocalBookStore, ownerSubject: string): 
       else store.values.set(key, value);
     },
     async uploadImage(_ownerSubject, bookId, fieldId, uri) {
+      if (Platform.OS === 'web') {
+        const localDataUrl = await storeWebImage(uri);
+        await this.saveValue(bookId, fieldId, localDataUrl);
+        return { value: localDataUrl, displayUrl: localDataUrl };
+      }
+
       const directory = FileSystem.documentDirectory;
       if (!directory) throw new Error('Leafmark could not access local document storage on this iPad.');
       const safeOwner = ownerSubject.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -298,12 +312,16 @@ function createBookPageRepository(store: LocalBookStore, ownerSubject: string): 
       return { value: destination, displayUrl: destination };
     },
     async deleteBookPage(bookId) {
+      const removedFieldIds = store.fields.filter((field) => field.bookId === bookId).map((field) => field.id);
+      store.fields = store.fields.filter((field) => field.bookId !== bookId);
       store.books = store.books.filter((book) => book.id !== bookId);
       store.tbrBookIds = store.tbrBookIds.filter((id) => id !== bookId);
       store.shelfBookIds = store.shelfBookIds.filter((id) => id !== bookId);
       store.attempts = store.attempts.filter((attempt) => attempt.bookId !== bookId);
       store.logs = store.logs.filter((log) => log.bookId !== bookId);
-      for (const key of store.values.keys()) if (key.startsWith(`${bookId}:`)) store.values.delete(key);
+      for (const key of store.values.keys()) {
+        if (key.startsWith(`${bookId}:`) || removedFieldIds.some((fieldId) => key.endsWith(`:${fieldId}`))) store.values.delete(key);
+      }
       const folder = `${FileSystem.documentDirectory ?? ''}book-page-images/${ownerSubject.replace(/[^a-zA-Z0-9_-]/g, '_')}/${bookId.replace(/[^a-zA-Z0-9_-]/g, '_')}/`;
       if (folder.startsWith(FileSystem.documentDirectory ?? '\u0000')) {
         await FileSystem.deleteAsync(folder, { idempotent: true }).catch(() => undefined);
@@ -317,6 +335,28 @@ function createBookPageRepository(store: LocalBookStore, ownerSubject: string): 
       return { ...updated };
     },
   };
+}
+
+async function storeWebImage(uri: string): Promise<string> {
+  const response = uri.startsWith('data:') ? null : await fetch(uri);
+  const image = response ? await response.blob() : null;
+  if (response && !response.ok) throw new Error('The illustration link could not be downloaded.');
+  if (image && !image.type.startsWith('image/')) throw new Error('Choose an image file for this Book page.');
+
+  if (!image) return uri;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('The illustration could not be stored for offline use.'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('The illustration could not be stored for offline use.'));
+    reader.readAsDataURL(image);
+  });
+}
+
+function compareFieldPosition(left: BookPageField, right: BookPageField): number {
+  return left.position - right.position || left.id.localeCompare(right.id);
 }
 
 function createBookshelfRepository(store: LocalBookStore): BookshelfRepository {
