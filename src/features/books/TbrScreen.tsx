@@ -452,10 +452,21 @@ function EditorField({
 }
 
 function BookCover({ book }: { book: BookDraft }) {
+  const accessibilityLabel = `Cover of ${book.title}`;
+
   return book.coverUrl ? (
-    <Image accessibilityIgnoresInvertColors source={{ uri: book.coverUrl }} style={styles.cover} />
+    <Image
+      accessibilityIgnoresInvertColors
+      accessibilityLabel={accessibilityLabel}
+      source={{ uri: book.coverUrl }}
+      style={styles.cover}
+    />
   ) : (
-    <View style={[styles.cover, styles.coverPlaceholder]}>
+    <View
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="image"
+      style={[styles.cover, styles.coverPlaceholder]}
+    >
       <Text style={styles.coverInitial}>{book.title.slice(0, 1).toUpperCase()}</Text>
     </View>
   );
