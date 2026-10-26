@@ -7,6 +7,8 @@ import type { AuthSession } from '../contracts';
 import { AppFlow } from '../../features/account/AppFlow';
 import { createGoogleBooksCatalog } from '../../catalog/googleBooksCatalog';
 import { createReaderProfileRepository } from '../../data/readerProfileRepository';
+import { createBookPageRepository } from '../../data/bookPageRepository';
+import { createBookshelfRepository } from '../../data/bookshelfRepository';
 import { createReadingRepository } from '../../data/readingRepository';
 import { createTbrRepository } from '../../data/tbrRepository';
 import { createClerkAuthActions } from './clerkAuthActions';
@@ -49,6 +51,8 @@ function AuthenticatedApp({ supabaseUrl, supabasePublishableKey }: Omit<ClerkApp
     [supabasePublishableKey, supabaseUrl],
   );
   const profiles = useMemo(() => createReaderProfileRepository(supabase), [supabase]);
+  const bookPages = useMemo(() => createBookPageRepository(supabase), [supabase]);
+  const bookshelf = useMemo(() => createBookshelfRepository(supabase), [supabase]);
   const reading = useMemo(() => createReadingRepository(supabase), [supabase]);
   const tbr = useMemo(() => createTbrRepository(supabase), [supabase]);
   const catalog = useMemo(() => createGoogleBooksCatalog(), []);
@@ -66,5 +70,5 @@ function AuthenticatedApp({ supabaseUrl, supabasePublishableKey }: Omit<ClerkApp
         : null,
   };
 
-  return <AppFlow auth={auth} session={authSession} profiles={profiles} catalog={catalog} tbr={tbr} reading={reading} />;
+  return <AppFlow auth={auth} session={authSession} profiles={profiles} catalog={catalog} tbr={tbr} reading={reading} bookPages={bookPages} bookshelf={bookshelf} />;
 }

@@ -23,6 +23,7 @@ export interface ReadingAttempt {
   startedOn: string;
   finishedOn: string | null;
   rating: number | null;
+  reflection: string;
   isCurrent: boolean;
 }
 
@@ -48,6 +49,7 @@ export interface ReadingSnapshot {
   configurations: ReadingConfiguration[];
   usedConfigurationIds: string[];
   currentAttempt: ReadingAttempt | null;
+  attempts: ReadingAttempt[];
   logs: ReadingLog[];
 }
 
@@ -74,6 +76,8 @@ export interface ReadingRepository {
   startBook(bookId: string, startedOn: string): Promise<void>;
   startReread(bookId: string, startedOn: string): Promise<void>;
   finishAttempt(attemptId: string, finishedOn: string, rating: number): Promise<void>;
+  updateAttemptFinish(attemptId: string, finishedOn: string, rating: number): Promise<void>;
   updateAttemptStart(attemptId: string, startedOn: string): Promise<void>;
+  updateAttemptReflection(attemptId: string, reflection: string): Promise<void>;
   saveDailyTotal(log: ReadingLogDraft): Promise<void>;
 }

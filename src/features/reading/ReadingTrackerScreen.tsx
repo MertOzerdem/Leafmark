@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 
 import { journalColors as colors } from '../../theme/colors';
+import { annualFinishedStats, buildCalendarDays, daysInCalendarMonth, type CalendarDay } from '../../reading/calendarViewModel';
 import type {
   ReadingCategory,
   ReadingConfiguration,
@@ -36,15 +37,19 @@ const emptySnapshot: ReadingSnapshot = {
   books: [],
   configurations: [],
   currentAttempt: null,
+  attempts: [],
   logs: [],
   usedConfigurationIds: [],
 };
 
 export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository }: ReadingTrackerScreenProps) {
   const [year, setYear] = useState(2027);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState(emptySnapshot);
   const [isLoading, setIsLoading] = useState(true);
   const [settingsDraft, setSettingsDraft] = useState<ReadingConfigurationDraft>(defaultConfiguration('minutes'));
+  const [customCategoryColors, setCustomCategoryColors] = useState<Record<number, string>>({});
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [bookStartDate, setBookStartDate] = useState(todayDate());
   const [currentStartDate, setCurrentStartDate] = useState('');
@@ -139,6 +144,15 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
     } catch {
       setMessage('The category color could not be saved. Try again.');
     }
+  }
+
+  function applyCustomCategoryColor(position: number) {
+    const color = customCategoryColors[position]?.trim() ?? '';
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+      setMessage('Enter a color as a six-digit hex value, such as #82876A.');
+      return;
+    }
+    void changeCategoryColor(position, color.toUpperCase());
   }
 
   async function startBook(bookId: string) {
@@ -252,6 +266,7 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
   }
 
   function selectCalendarDate(date: string) {
+    setSelectedCalendarDate(date);
     setReadingDate(date);
     setEditingLogId(null);
     setAmount('');
@@ -321,6 +336,17 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
     () => aggregateLogsByDate(snapshot.logs, snapshot.configurations, settingsDraft),
     [settingsDraft, snapshot.configurations, snapshot.logs],
   );
+  const yearStats = useMemo(() => annualFinishedStats(snapshot.attempts, year), [snapshot.attempts, year]);
+  const monthDays = useMemo(
+    () => selectedMonth === null ? [] : buildCalendarDays(year, selectedMonth, snapshot.logs, snapshot.attempts, snapshot.configurations),
+    [selectedMonth, snapshot.attempts, snapshot.configurations, snapshot.logs, year],
+  );
+  const selectedDateDays = useMemo(() => {
+    if (!selectedCalendarDate?.startsWith(`${year}-`)) return [];
+    const monthNumber = Number(selectedCalendarDate.slice(5, 7));
+    return buildCalendarDays(year, monthNumber, snapshot.logs, snapshot.attempts, snapshot.configurations);
+  }, [selectedCalendarDate, snapshot.attempts, snapshot.configurations, snapshot.logs, year]);
+  const selectedDay = selectedCalendarDate ? selectedDateDays[Number(selectedCalendarDate.slice(8, 10)) - 1] ?? null : null;
   return (
     <View style={styles.container}>
       <Text style={styles.pageTitle}>{year} Reading Log</Text>
@@ -384,6 +410,24 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
                     style={[styles.swatch, { backgroundColor: color }, category.color === color && styles.selectedSwatch]}
                   />
                 ))}
+              </View>
+              <View style={styles.customColorRow}>
+                <TextInput
+                  accessibilityLabel={`Custom color for category ${index + 1}`}
+                  autoCapitalize="characters"
+                  onChangeText={(value) => setCustomCategoryColors((current) => ({ ...current, [index]: value }))}
+                  placeholder="#82876A"
+                  style={styles.customColorInput}
+                  value={customCategoryColors[index] ?? ''}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Save custom color for category ${index + 1}`}
+                  onPress={() => applyCustomCategoryColor(index)}
+                  style={styles.customColorButton}
+                >
+                  <Text style={styles.secondaryButtonText}>Apply</Text>
+                </Pressable>
               </View>
             </View>
           ))}
@@ -567,7 +611,32 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
             <Text style={styles.yearButtonText}>›</Text>
           </Pressable>
         </View>
-        <AnnualReadingGrid year={year} totals={totalByDate} onSelectDate={selectCalendarDate} />
+        <Text style={styles.yearSummary}>{yearStats.uniqueBooks} unique Books · {yearStats.attempts} finished Reading attempts · {yearStats.rereads} rereads</Text>
+        {selectedMonth === null ? (
+          <AnnualReadingGrid
+            year={year}
+            totals={totalByDate}
+            attempts={snapshot.attempts}
+            onSelectDate={selectCalendarDate}
+            onSelectMonth={(month) => { setSelectedMonth(month); setSelectedCalendarDate(null); }}
+          />
+        ) : (
+          <View testID="month-reading-view">
+            <View style={styles.monthHeading}>
+              <Pressable accessibilityRole="button" onPress={() => { setSelectedMonth(null); setSelectedCalendarDate(null); }} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>‹ {year} at a glance</Text>
+              </Pressable>
+              <Text style={styles.sectionTitle}>{months[selectedMonth - 1]} {year}</Text>
+            </View>
+            <MonthDetailCalendar
+              days={monthDays}
+              year={year}
+              month={selectedMonth}
+              onSelectDate={selectCalendarDate}
+            />
+          </View>
+        )}
+        {selectedDay ? <CalendarDayDetail day={selectedDay} onEditLog={editLog} onClose={() => setSelectedCalendarDate(null)} /> : null}
         {configurationForDate ? (
           <View style={styles.legend} accessibilityLabel="Reading category legend">
             {configurationForDate.categories.map((category) => (
@@ -595,12 +664,83 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
   );
 }
 
-function AnnualReadingGrid({
+function MonthDetailCalendar({
+  days,
+  month,
   onSelectDate,
+  year,
+}: {
+  days: CalendarDay[];
+  month: number;
+  onSelectDate(date: string): void;
+  year: number;
+}) {
+  const offset = new Date(year, month - 1, 1).getDay();
+  const cellCount = Math.ceil((offset + daysInCalendarMonth(year, month)) / 7) * 7;
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return (
+    <View testID="month-calendar" style={styles.monthCalendar}>
+      <View style={styles.weekHeader}>
+        {weekDays.map((day) => <Text key={day} style={styles.weekDay}>{day}</Text>)}
+      </View>
+      <View style={styles.monthGrid}>
+        {Array.from({ length: cellCount }, (_, cellIndex) => {
+          const day = days[cellIndex - offset];
+          if (!day) return <View key={`blank-${cellIndex}`} style={styles.monthDayCell} />;
+          const eventLabel = [
+            ...day.starts.map((attempt) => `started ${attempt.bookTitle}`),
+            ...day.finishes.map((attempt) => `finished ${attempt.bookTitle}`),
+          ];
+          const totalLabel = day.logs.map((log) => `${log.bookTitle} ${log.amount} ${log.measure}`).join(', ');
+          return (
+            <Pressable
+              key={day.date}
+              accessibilityRole="button"
+              accessibilityLabel={`${day.date}${totalLabel ? `, ${totalLabel}` : ', no reading total'}${eventLabel.length ? `, ${eventLabel.join(', ')}` : ''}`}
+              onPress={() => onSelectDate(day.date)}
+              style={[styles.monthDayCell, day.color ? { backgroundColor: day.color } : styles.monthDayEmpty]}
+            >
+              <Text style={styles.monthDayNumber}>{Number(day.date.slice(8, 10))}</Text>
+              {day.total > 0 ? <Text numberOfLines={1} style={styles.monthDayTotal}>{day.total} {day.measure === 'minutes' ? 'm' : day.measure === 'pages' ? 'p' : 'ch'}</Text> : null}
+              {eventLabel.length > 0 ? <Text style={styles.eventSymbols}>{day.starts.length ? '✦' : ''}{day.finishes.length ? '♛' : ''}</Text> : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function CalendarDayDetail({ day, onClose, onEditLog }: { day: CalendarDay; onClose(): void; onEditLog(log: ReadingLog): void }) {
+  return (
+    <View style={styles.dayDetail} testID="calendar-day-detail">
+      <View style={styles.dayDetailHeading}>
+        <Text style={styles.sectionTitle}>{day.date}</Text>
+        <Pressable accessibilityRole="button" onPress={onClose} style={styles.smallAction}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
+      </View>
+      {day.logs.length === 0 ? <Text style={styles.helpText}>No Reading total for this day.</Text> : day.logs.map((log) => (
+        <View key={log.id} style={styles.logRow}>
+          <Text style={styles.logText}>{log.bookTitle} · {log.amount} {log.measure}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Edit reading log for ${log.bookTitle} dated ${log.date}`} onPress={() => onEditLog(log)} style={styles.smallAction}><Text style={styles.secondaryButtonText}>Edit</Text></Pressable>
+        </View>
+      ))}
+      {day.starts.map((attempt) => <Text key={`start-${attempt.id}`} style={styles.calendarEvent}>✦ Started {attempt.bookTitle}</Text>)}
+      {day.finishes.map((attempt) => <Text key={`finish-${attempt.id}`} style={styles.calendarEvent}>♛ Finished {attempt.bookTitle}</Text>)}
+    </View>
+  );
+}
+
+function AnnualReadingGrid({
+  attempts,
+  onSelectDate,
+  onSelectMonth,
   totals,
   year,
 }: {
   onSelectDate(date: string): void;
+  onSelectMonth(month: number): void;
+  attempts: ReadingSnapshot['attempts'];
   totals: Map<string, { amount: number; measure: ReadingMeasure; categoryLabel: string; color: string }>;
   year: number;
 }) {
@@ -608,7 +748,11 @@ function AnnualReadingGrid({
     <View testID="annual-reading-grid" style={styles.calendar}>
       <View style={styles.calendarRow}>
         <View style={styles.dayNumberCell} />
-        {months.map((month) => <Text key={month} style={styles.monthHeader}>{month.slice(0, 3)}</Text>)}
+        {months.map((month, index) => (
+          <Pressable key={month} accessibilityRole="button" accessibilityLabel={`Open ${month} ${year}`} onPress={() => onSelectMonth(index + 1)} style={styles.monthHeaderButton}>
+            <Text style={styles.monthHeader}>{month.slice(0, 3)}</Text>
+          </Pressable>
+        ))}
       </View>
       {Array.from({ length: 31 }, (_, dayIndex) => {
         const day = dayIndex + 1;
@@ -619,9 +763,11 @@ function AnnualReadingGrid({
               const date = `${year}-${padDatePart(monthIndex + 1)}-${padDatePart(day)}`;
               const isValidDay = day <= daysInMonth(year, monthIndex);
               const activity = isValidDay ? totals.get(date) : undefined;
+              const starts = isValidDay ? attempts.some((attempt) => attempt.startedOn === date) : false;
+              const finishes = isValidDay ? attempts.some((attempt) => attempt.finishedOn === date) : false;
               const label = activity
-                ? `${month} ${day}: ${activity.amount} ${activity.measure}, category ${activity.categoryLabel}`
-                : `${month} ${day}: no reading total`;
+                ? `${month} ${day}: ${activity.amount} ${activity.measure}, category ${activity.categoryLabel}${starts ? ', book started' : ''}${finishes ? ', book finished' : ''}`
+                : `${month} ${day}: no reading total${starts ? ', book started' : ''}${finishes ? ', book finished' : ''}`;
               return (
                 <Pressable
                   key={month}
@@ -631,7 +777,10 @@ function AnnualReadingGrid({
                   onPress={() => onSelectDate(date)}
                   style={styles.calendarDay}
                 >
-                  <Text style={[styles.calendarHeart, activity && { color: activity.color }]}>{activity ? '♥' : '♡'}</Text>
+                  <View style={styles.annualDayCell}>
+                    <Text style={[styles.calendarHeart, activity && { color: activity.color }]}>{activity ? '♥' : '♡'}</Text>
+                    {starts || finishes ? <Text style={styles.annualEventSymbol}>{finishes ? '♛' : '✦'}</Text> : null}
+                  </View>
                 </Pressable>
               );
             })}
@@ -761,13 +910,16 @@ const styles = StyleSheet.create({
   selectedChoiceText: { color: colors.ink },
   input: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 11, borderWidth: 1, color: colors.ink, fontSize: 15, minHeight: 46, paddingHorizontal: 12 },
   categoryRows: { gap: 9, marginTop: 2 },
-  categoryRow: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, justifyContent: 'space-between', paddingBottom: 9 },
+  categoryRow: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between', paddingBottom: 9 },
   categoryCopy: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8 },
   categoryLabel: { color: colors.ink, fontSize: 13, minWidth: 90 },
   limitInput: { backgroundColor: colors.paper, borderColor: colors.line, borderRadius: 8, borderWidth: 1, color: colors.ink, minHeight: 38, paddingHorizontal: 8, textAlign: 'center', width: 62 },
   openRange: { color: colors.muted, fontSize: 12 },
   disabledInput: { opacity: 0.55 },
   swatches: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  customColorRow: { alignItems: 'center', flexDirection: 'row', gap: 6, marginLeft: 'auto' },
+  customColorInput: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 8, borderWidth: 1, color: colors.ink, fontSize: 12, minHeight: 34, paddingHorizontal: 8, width: 92 },
+  customColorButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 8, borderWidth: 1, justifyContent: 'center', minHeight: 34, paddingHorizontal: 9 },
   swatch: { borderColor: colors.line, borderRadius: 10, borderWidth: 1, height: 20, width: 20 },
   selectedSwatch: { borderColor: colors.ink, borderWidth: 2 },
   primaryButton: { alignItems: 'center', backgroundColor: colors.olive, borderRadius: 11, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14 },
@@ -789,6 +941,21 @@ const styles = StyleSheet.create({
   message: { color: colors.error, fontSize: 13, lineHeight: 19, marginTop: 10 },
   loader: { marginVertical: 16 },
   yearHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  yearSummary: { color: colors.muted, fontSize: 12, marginBottom: 10 },
+  monthHeading: { gap: 8, marginBottom: 10 },
+  monthCalendar: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 12, borderWidth: 1, overflow: 'hidden', padding: 8 },
+  weekHeader: { flexDirection: 'row', justifyContent: 'space-between' },
+  weekDay: { color: colors.muted, fontSize: 11, paddingVertical: 7, textAlign: 'center', width: '14.28%' },
+  monthGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  monthDayCell: { alignItems: 'center', borderColor: '#E4E1D5', borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, height: 74, justifyContent: 'flex-start', paddingTop: 5, width: '14.28%' },
+  monthDayEmpty: { backgroundColor: '#F8F6EE' },
+  monthDayNumber: { color: colors.ink, fontSize: 12, fontWeight: '700' },
+  monthDayTotal: { color: colors.ink, fontSize: 9, marginTop: 4, textAlign: 'center' },
+  eventSymbols: { color: '#725D42', fontSize: 11, marginTop: 3 },
+  dayDetail: { backgroundColor: '#FFFCF2', borderColor: colors.line, borderRadius: 14, borderWidth: 1, marginTop: 12, padding: 12 },
+  dayDetailHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  calendarEvent: { color: colors.olive, fontSize: 13, marginTop: 8 },
+  monthHeaderButton: { alignItems: 'center', justifyContent: 'center', width: 23 },
   yearButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 12, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
   yearButtonText: { color: colors.ink, fontSize: 25, lineHeight: 28 },
   calendar: { alignSelf: 'flex-start', borderColor: colors.line, borderRadius: 10, borderWidth: 1, maxWidth: '100%', overflow: 'hidden', paddingBottom: 6, paddingHorizontal: 4, paddingTop: 5 },
@@ -797,6 +964,8 @@ const styles = StyleSheet.create({
   monthHeader: { color: colors.ink, fontSize: 9, textAlign: 'center', width: 23 },
   calendarDay: { alignItems: 'center', height: 21, justifyContent: 'center', width: 23 },
   calendarHeart: { color: '#D6D1C2', fontSize: 13, lineHeight: 16 },
+  annualDayCell: { alignItems: 'center', flexDirection: 'row' },
+  annualEventSymbol: { color: colors.ink, fontSize: 6, marginLeft: -4 },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 14 },
   legendItem: { alignItems: 'center', flexDirection: 'row', gap: 4 },
   legendSwatch: { borderColor: colors.line, borderRadius: 5, borderWidth: StyleSheet.hairlineWidth, height: 11, width: 11 },

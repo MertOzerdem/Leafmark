@@ -18,11 +18,14 @@ import type {
   ReaderProfileRepository,
 } from '../../auth/contracts';
 import type { BookCatalog, TbrRepository } from '../../books/bookTypes';
+import type { BookPageRepository } from '../../books/bookPageTypes';
+import type { BookshelfRepository } from '../../books/bookshelfTypes';
 import type { ReadingRepository } from '../../reading/readingTypes';
 import { journalColors as colors } from '../../theme/colors';
 import { ReadBooksLibrary } from '../books/ReadBooksLibrary';
 import { TbrScreen } from '../books/TbrScreen';
 import { ReadingTrackerScreen } from '../reading/ReadingTrackerScreen';
+import { BookshelfScreen } from '../books/BookshelfScreen';
 import { JournalAccents } from './JournalAccents';
 
 interface AppFlowProps {
@@ -32,9 +35,13 @@ interface AppFlowProps {
   catalog: BookCatalog;
   tbr: TbrRepository;
   reading: ReadingRepository;
+  bookPages: BookPageRepository;
+  bookshelf: BookshelfRepository;
 }
 
-export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppFlowProps) {
+type AppSection = 'bookshelf' | 'tracker' | 'read-books' | 'tbr';
+
+export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPages, bookshelf }: AppFlowProps) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -45,6 +52,7 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppF
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [collectionRevision, setCollectionRevision] = useState(0);
+  const [activeSection, setActiveSection] = useState<AppSection>('bookshelf');
 
   const onReadingChanged = useCallback(() => {
     setCollectionRevision((revision) => revision + 1);
@@ -231,10 +239,24 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppF
     <View style={styles.screen}>
       <JournalAccents />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
-        <ScrollView contentContainerStyle={styles.privateShell} keyboardShouldPersistTaps="handled">
-          <Text style={styles.kicker}>LEAFMARK · PRIVATE READING JOURNAL</Text>
-          <Text style={styles.title}>Welcome back, {identity.username}.</Text>
-          <Text style={styles.intro}>Signed in as {identity.username}</Text>
+        <View style={styles.appHeader}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.kicker}>LEAFMARK · PRIVATE READING JOURNAL</Text>
+            <Text style={styles.headerTitle}>Welcome back, {identity.username}.</Text>
+            <Text style={styles.headerSubtitle}>Signed in as {identity.username}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
+            }}
+            style={styles.headerSignOut}
+          >
+            <Text style={styles.secondaryButtonText}>Sign out</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView style={styles.mainContent} contentContainerStyle={styles.privateShell} keyboardShouldPersistTaps="handled">
 
           {isProfileLoading ? (
             <View style={styles.profileLoading} testID="profile-loading">
@@ -260,33 +282,30 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppF
             </View>
           ) : null}
 
-          <ReadingTrackerScreen
-            onBookFinished={onReadingChanged}
-            refreshToken={collectionRevision}
-            repository={reading}
-          />
-          <ReadBooksLibrary
-            onReadingChanged={onReadingChanged}
-            refreshToken={collectionRevision}
-            repository={reading}
-          />
-          <TbrScreen
-            catalog={catalog}
-            onBooksChanged={onReadingChanged}
-            refreshToken={collectionRevision}
-            repository={tbr}
-          />
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
-            }}
-            style={[styles.secondaryButton, styles.signOutButton]}
-          >
-            <Text style={styles.secondaryButtonText}>Sign out</Text>
-          </Pressable>
+          {activeSection === 'bookshelf' ? <BookshelfScreen refreshToken={collectionRevision} repository={bookshelf} /> : null}
+          {activeSection === 'tracker' ? <ReadingTrackerScreen onBookFinished={onReadingChanged} refreshToken={collectionRevision} repository={reading} /> : null}
+          {activeSection === 'read-books' ? <ReadBooksLibrary onReadingChanged={onReadingChanged} ownerSubject={subject ?? ''} pages={bookPages} refreshToken={collectionRevision} repository={reading} /> : null}
+          {activeSection === 'tbr' ? <TbrScreen catalog={catalog} onBooksChanged={onReadingChanged} refreshToken={collectionRevision} repository={tbr} /> : null}
         </ScrollView>
+        <View accessibilityLabel="Main navigation" style={styles.tabBar}>
+          {([
+            ['bookshelf', 'Bookshelf', 'Open My Bookshelf'],
+            ['tracker', 'Reading Log', 'Open Reading tracker'],
+            ['read-books', 'Read Books', 'Open Read Books'],
+            ['tbr', 'To Be Read', 'Open TBR'],
+          ] as const).map(([section, label, accessibilityLabel]) => (
+            <Pressable
+              key={section}
+              accessibilityRole="button"
+              accessibilityState={{ selected: activeSection === section }}
+              accessibilityLabel={accessibilityLabel}
+              onPress={() => setActiveSection(section)}
+              style={[styles.tabButton, activeSection === section && styles.activeTab]}
+            >
+              <Text style={[styles.tabText, activeSection === section && styles.activeTabText]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -340,7 +359,18 @@ const styles = StyleSheet.create({
   error: { color: colors.error, fontSize: 14, lineHeight: 20, marginTop: 14 },
   centeredScreen: { alignItems: 'center', backgroundColor: colors.paper, flex: 1, justifyContent: 'center' },
   loadingText: { color: colors.muted, fontSize: 14, marginTop: 12 },
-  privateShell: { alignSelf: 'center', flexGrow: 1, justifyContent: 'flex-start', maxWidth: 900, padding: 32, width: '100%' },
+  privateShell: { alignSelf: 'center', flexGrow: 1, justifyContent: 'flex-start', maxWidth: 1000, paddingHorizontal: 22, paddingBottom: 30, paddingTop: 16, width: '100%' },
+  mainContent: { flex: 1 },
+  appHeader: { alignItems: 'center', backgroundColor: '#F7F5EBE8', borderBottomColor: colors.line, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 16, justifyContent: 'space-between', paddingHorizontal: 22, paddingVertical: 12 },
+  headerCopy: { flex: 1 },
+  headerTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 23, marginTop: 6 },
+  headerSubtitle: { color: colors.muted, fontSize: 12, marginTop: 3 },
+  headerSignOut: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 42, paddingHorizontal: 12 },
+  tabBar: { alignItems: 'center', backgroundColor: colors.panel, borderTopColor: colors.line, borderTopWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'space-around', paddingHorizontal: 8, paddingVertical: 8 },
+  tabButton: { alignItems: 'center', borderRadius: 12, flex: 1, justifyContent: 'center', minHeight: 52, paddingHorizontal: 6 },
+  activeTab: { backgroundColor: '#E9E8DA' },
+  tabText: { color: colors.muted, fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  activeTabText: { color: colors.ink },
   profileLoading: { alignItems: 'center', marginVertical: 30 },
   profileCard: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 20, borderWidth: 1, marginVertical: 30, padding: 24 },
   profileTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 24 },
@@ -348,5 +378,4 @@ const styles = StyleSheet.create({
   profileHint: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 10 },
   secondaryButton: { alignItems: 'center', alignSelf: 'flex-start', borderColor: colors.olive, borderRadius: 12, borderWidth: 1, justifyContent: 'center', marginTop: 16, minHeight: 48, paddingHorizontal: 20 },
   secondaryButtonText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
-  signOutButton: { alignSelf: 'flex-end', marginBottom: 24 },
 });

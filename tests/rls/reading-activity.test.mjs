@@ -20,6 +20,18 @@ const finishReadingMigration = await readFile(
   new URL('../../supabase/migrations/20261026000400_finish_reading_attempts.sql', import.meta.url),
   'utf8',
 );
+const bookPagesAndShelfMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000500_book_pages_and_bookshelf.sql', import.meta.url),
+  'utf8',
+);
+const privateImagesMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000600_private_book_page_images.sql', import.meta.url),
+  'utf8',
+);
+const editableAttemptMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000700_edit_reading_attempt_history.sql', import.meta.url),
+  'utf8',
+);
 
 async function createDatabase() {
   const database = new PGlite();
@@ -34,11 +46,33 @@ async function createDatabase() {
       $$;
     grant usage on schema auth to authenticated;
     grant execute on function auth.jwt() to authenticated;
+    create schema storage;
+    create function storage.foldername(object_name text) returns text[]
+      language sql immutable
+      as $$ select string_to_array(object_name, '/') $$;
+    create table storage.buckets (
+      id text primary key,
+      name text not null,
+      public boolean not null,
+      file_size_limit bigint,
+      allowed_mime_types text[]
+    );
+    create table storage.objects (
+      id uuid primary key default gen_random_uuid(),
+      bucket_id text not null,
+      name text not null
+    );
+    alter table storage.objects enable row level security;
+    grant usage on schema storage to authenticated;
+    grant select, insert, update, delete on storage.objects to authenticated;
   `);
   await database.exec(profileMigration);
   await database.exec(booksMigration);
   await database.exec(readingMigration);
   await database.exec(finishReadingMigration);
+  await database.exec(bookPagesAndShelfMigration);
+  await database.exec(privateImagesMigration);
+  await database.exec(editableAttemptMigration);
   return database;
 }
 
@@ -50,6 +84,21 @@ async function asReader(database, subject, operation, role = 'authenticated') {
   try {
     const result = await operation();
     await database.exec('rollback;');
+    return result;
+  } catch (error) {
+    await database.exec('rollback;');
+    throw error;
+  }
+}
+
+async function asReaderCommitted(database, subject, operation) {
+  await database.exec('begin; set local role authenticated;');
+  await database.query("select set_config('request.jwt.claims', $1, true)", [
+    JSON.stringify({ sub: subject, role: 'authenticated' }),
+  ]);
+  try {
+    const result = await operation();
+    await database.exec('commit;');
     return result;
   } catch (error) {
     await database.exec('rollback;');
@@ -196,6 +245,43 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
       assert.deepEqual(result.rows, [{ color: '#123456' }]);
     });
 
+    await t.test('a new measure baseline preserves the earlier log configuration', async () => {
+      const result = await asReader(database, 'reader_a', async () => {
+        const pages = await database.query(
+          'select * from public.save_reading_configuration(null, $1, $2, $3::jsonb)',
+          ['pages', '2027-01-01', JSON.stringify(categories)],
+        );
+        await database.query('select * from public.start_reading_attempt($1, $2)', [garden.rows[0].id, '2027-01-02']);
+        const oldLog = await database.query(
+          'select * from public.save_daily_reading_total(null, $1, $2, $3, $4)',
+          [garden.rows[0].id, pages.rows[0].id, '2027-01-03', 25],
+        );
+        const minutes = await database.query(
+          'select * from public.save_reading_configuration($1, $2, $3, $4::jsonb)',
+          [pages.rows[0].id, 'minutes', '2027-02-01', JSON.stringify(categories)],
+        );
+        const newLog = await database.query(
+          'select * from public.save_daily_reading_total(null, $1, $2, $3, $4)',
+          [garden.rows[0].id, minutes.rows[0].id, '2027-02-02', 35],
+        );
+        const saved = await database.query(
+          'select logs.logged_on, logs.amount, configurations.measure, configurations.starts_on from public.reading_logs logs join public.reading_configurations configurations on configurations.id = logs.configuration_id order by logs.logged_on',
+        );
+        return { oldLog: oldLog.rows[0], newLog: newLog.rows[0], saved: saved.rows };
+      });
+
+      assert.notEqual(result.oldLog.configuration_id, result.newLog.configuration_id);
+      assert.deepEqual(result.saved.map((row) => ({
+        date: dateString(row.logged_on),
+        amount: row.amount,
+        measure: row.measure,
+        startsOn: dateString(row.starts_on),
+      })), [
+        { date: '2027-01-03', amount: 25, measure: 'pages', startsOn: '2027-01-01' },
+        { date: '2027-02-02', amount: 35, measure: 'minutes', startsOn: '2027-02-01' },
+      ]);
+    });
+
     await t.test('finishing removes TBR membership and rereading adds an attempt to the same Book', async () => {
       await database.query(
         'insert into public.tbr_entries (user_id, book_id, position) values ($1, $2, 0)',
@@ -217,6 +303,14 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
         const finished = await database.query(
           'select * from public.finish_reading_attempt($1, $2, $3)',
           [firstAttempt.rows[0].id, '2027-01-12', 4.5],
+        );
+        await database.query(
+          'select public.update_reading_attempt_start($1, $2)',
+          [firstAttempt.rows[0].id, '2027-01-01'],
+        );
+        await database.query(
+          'select public.update_reading_attempt_finish($1, $2, $3)',
+          [firstAttempt.rows[0].id, '2027-01-13', 4],
         );
         const tbr = await database.query('select book_id from public.tbr_entries where book_id = $1', [garden.rows[0].id]);
         const reread = await database.query(
@@ -242,8 +336,9 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
       assert.equal(result.books.rows[0].count, 1);
       assert.equal(result.attempts.rows.length, 2);
       assert.equal(result.attempts.rows[0].id, result.finished.id);
-      assert.equal(dateString(result.attempts.rows[0].finished_on), '2027-01-12');
-      assert.equal(Number(result.attempts.rows[0].rating), 4.5);
+      assert.equal(dateString(result.attempts.rows[0].started_on), '2027-01-01');
+      assert.equal(dateString(result.attempts.rows[0].finished_on), '2027-01-13');
+      assert.equal(Number(result.attempts.rows[0].rating), 4);
       assert.equal(result.attempts.rows[1].finished_on, null);
       assert.equal(result.attempts.rows[1].is_current, true);
     });
@@ -293,6 +388,76 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
         ), 'anon'),
         (error) => error.code === '42501',
       );
+    });
+
+    await t.test('Book page notes and bookshelf positions stay private to their reader', async () => {
+      await database.query(
+        "insert into public.books (user_id, title) values ('reader_a', 'Private notes Book'), ('reader_b', 'Other reader Book')",
+      );
+      const books = await database.query("select id, user_id from public.books where title in ('Private notes Book', 'Other reader Book')");
+      const bookA = books.rows.find((row) => row.user_id === 'reader_a').id;
+      const bookB = books.rows.find((row) => row.user_id === 'reader_b').id;
+      const fields = await database.query(
+        "insert into public.book_page_fields (user_id, book_id, label, field_type, position) values ('reader_a', $1, 'Private note', 'multiline', 0) returning id",
+        [bookA],
+      );
+      await database.query(
+        "insert into public.book_page_field_values (user_id, book_id, field_id, value) values ('reader_a', $1, $2, 'Only reader A can see this')",
+        [bookA, fields.rows[0].id],
+      );
+      await database.query(
+        "insert into public.bookshelf_items (user_id, item_type, book_id, position_x, position_y) values ('reader_a', 'book', $1, 0.2, 40), ('reader_b', 'book', $2, 0.3, 70)",
+        [bookA, bookB],
+      );
+      await database.query(
+        "insert into storage.objects (bucket_id, name) values ('book-page-images', $1), ('book-page-images', $2)",
+        [`reader_a/${bookA}/${fields.rows[0].id}/art.jpg`, `reader_b/${bookB}/illustration/art.jpg`],
+      );
+
+      const readerAData = await asReader(database, 'reader_a', async () => ({
+        values: await database.query('select value from public.book_page_field_values'),
+        shelf: await database.query('select book_id from public.bookshelf_items'),
+        images: await database.query('select name from storage.objects'),
+      }));
+      const readerBData = await asReader(database, 'reader_b', async () => ({
+        values: await database.query('select value from public.book_page_field_values'),
+        shelf: await database.query('select book_id from public.bookshelf_items'),
+        images: await database.query('select name from storage.objects'),
+      }));
+      assert.deepEqual(readerAData.values.rows, [{ value: 'Only reader A can see this' }]);
+      assert.deepEqual(readerAData.shelf.rows, [{ book_id: bookA }]);
+      assert.deepEqual(readerBData.values.rows, []);
+      assert.deepEqual(readerBData.shelf.rows, [{ book_id: bookB }]);
+      assert.deepEqual(readerAData.images.rows, [{ name: `reader_a/${bookA}/${fields.rows[0].id}/art.jpg` }]);
+      assert.deepEqual(readerBData.images.rows, [{ name: `reader_b/${bookB}/illustration/art.jpg` }]);
+
+      await assert.rejects(
+        asReader(database, 'anonymous', () => database.query('select value from public.book_page_field_values'), 'anon'),
+        (error) => error.code === '42501',
+      );
+      await assert.rejects(
+        asReader(database, 'anonymous', () => database.query('select name from storage.objects'), 'anon'),
+        (error) => error.code === '42501',
+      );
+
+      const newProfileFields = await asReader(database, 'reader_seed', async () => {
+        await database.query("insert into public.reader_profiles (username) values ('reader-seed')");
+        return database.query("select label, field_type from public.book_page_fields where user_id = 'reader_seed' order by position");
+      });
+      assert.deepEqual(newProfileFields.rows, [
+        { label: 'Series', field_type: 'text' },
+        { label: 'Couple', field_type: 'text' },
+        { label: 'Favorite quotes', field_type: 'multiline' },
+        { label: 'Personal thoughts', field_type: 'multiline' },
+        { label: 'Illustration', field_type: 'image' },
+      ]);
+
+      await asReaderCommitted(database, 'reader_a', () => database.query(
+        'select public.delete_book_page($1)',
+        [bookA],
+      ));
+      const remainingImages = await database.query("select name from storage.objects where bucket_id = 'book-page-images'");
+      assert.deepEqual(remainingImages.rows, [{ name: `reader_b/${bookB}/illustration/art.jpg` }]);
     });
   } finally {
     await database.close();

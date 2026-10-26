@@ -21,7 +21,11 @@
       },
       "predictiveBackGestureEnabled": false
     },
-    "plugins": ["expo-secure-store", "@clerk/expo"],
+    "plugins": [
+      "expo-secure-store",
+      "@clerk/expo",
+      ["expo-image-picker", { "photosPermission": "Allow Leafmark to add illustrations to your private Book pages." }]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     }

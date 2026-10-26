@@ -17,7 +17,7 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
     async loadSnapshot(year) {
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
-      const [booksResult, configurationResult, colorResult, currentResult, logResult, usedResult] = await Promise.all([
+      const [booksResult, configurationResult, colorResult, currentResult, attemptsResult, logResult, usedResult] = await Promise.all([
         client.from('books').select(bookColumns).order('created_at', { ascending: true }),
         client.from('reading_configurations')
           .select('id, measure, starts_on, categories, created_at')
@@ -25,9 +25,12 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
           .order('created_at', { ascending: true }),
         client.from('reading_category_colors').select('position, color'),
         client.from('reading_attempts')
-          .select('id, book_id, started_on, finished_on, rating, is_current, book:books!inner(title)')
+          .select('id, book_id, started_on, finished_on, rating, reflection, is_current, book:books!inner(title)')
           .eq('is_current', true)
           .maybeSingle(),
+        client.from('reading_attempts')
+          .select('id, book_id, started_on, finished_on, rating, reflection, is_current, book:books!inner(title)')
+          .order('started_on', { ascending: true }),
         client.from('reading_logs')
           .select('id, attempt_id, configuration_id, logged_on, amount, category_position, configuration:reading_configurations!inner(measure), attempt:reading_attempts!inner(book_id, book:books!inner(title))')
           .gte('logged_on', startDate)
@@ -40,6 +43,7 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
       throwIfError(configurationResult.error);
       throwIfError(colorResult.error);
       throwIfError(currentResult.error);
+      throwIfError(attemptsResult.error);
       throwIfError(logResult.error);
       throwIfError(usedResult.error);
 
@@ -53,6 +57,7 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
 
       const configurations = arrayValue(configurationResult.data).map((value) => mapConfiguration(value, colorsByPosition));
       const currentAttempt = currentResult.data ? mapCurrentAttempt(currentResult.data) : null;
+      const attempts = arrayValue(attemptsResult.data).map(mapReadingAttempt);
       const logs = arrayValue(logResult.data).map(mapReadingLog);
       const usedConfigurationIds = [...new Set(arrayValue(usedResult.data)
         .map((value) => stringValue(asRecord(value).configuration_id))
@@ -62,6 +67,7 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
         books: arrayValue(booksResult.data).map(mapBookRecord),
         configurations,
         currentAttempt,
+        attempts,
         logs,
         usedConfigurationIds,
       };
@@ -71,7 +77,7 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
       const [booksResult, attemptsResult] = await Promise.all([
         client.from('books').select(bookColumns).order('created_at', { ascending: true }),
         client.from('reading_attempts')
-          .select('id, book_id, started_on, finished_on, rating, is_current, book:books!inner(title)')
+          .select('id, book_id, started_on, finished_on, rating, reflection, is_current, book:books!inner(title)')
           .order('finished_on', { ascending: false, nullsFirst: false })
           .order('started_on', { ascending: false }),
       ]);
@@ -136,11 +142,25 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
       throwIfError(error);
     },
 
+    async updateAttemptFinish(attemptId, finishedOn, rating) {
+      const { error } = await client.rpc('update_reading_attempt_finish', {
+        p_attempt_id: attemptId,
+        p_finished_on: finishedOn,
+        p_rating: rating,
+      });
+      throwIfError(error);
+    },
+
     async updateAttemptStart(attemptId, startedOn) {
       const { error } = await client.rpc('update_reading_attempt_start', {
         p_attempt_id: attemptId,
         p_started_on: startedOn,
       });
+      throwIfError(error);
+    },
+
+    async updateAttemptReflection(attemptId, reflection) {
+      const { error } = await client.from('reading_attempts').update({ reflection }).eq('id', attemptId);
       throwIfError(error);
     },
 
@@ -204,6 +224,7 @@ function mapReadingAttempt(value: unknown): ReadingAttempt {
     startedOn: stringValue(row.started_on),
     finishedOn: nullableString(row.finished_on),
     rating: nullableRating(row.rating),
+    reflection: stringValue(row.reflection),
     isCurrent: row.is_current === true,
   };
   if (!attempt.id || !attempt.bookId || !attempt.bookTitle || !attempt.startedOn) {
