@@ -1,6 +1,6 @@
 # Account and private data setup
 
-Leafmark uses Clerk for username-and-password accounts and Supabase for synced reader-owned data. The app sends the signed-in Clerk session token to Supabase; PostgreSQL row-level security checks the Clerk `sub` claim on every profile read or write.
+Leafmark uses Clerk for username-and-password accounts and Supabase for synced reader-owned data. The app sends the signed-in Clerk session token to Supabase; PostgreSQL row-level security checks the Clerk `sub` claim on every profile, Book, or TBR read or write.
 
 ## Configure Clerk
 
@@ -12,7 +12,7 @@ Leafmark uses Clerk for username-and-password accounts and Supabase for synced r
 ## Configure Supabase
 
 1. In **Authentication → Sign In / Providers → Third-party Auth**, add Clerk with the domain from the Clerk integration setup.
-2. Apply `supabase/migrations/20261026000100_create_reader_profiles.sql` to the project. With the Supabase CLI installed and the project linked, run `supabase db push`.
+2. Apply the migrations in `supabase/migrations/` to the project. This creates private reader profiles, Books, and ordered TBR entries. With the Supabase CLI installed and the project linked, run `supabase db push`.
 3. Keep Row Level Security enabled for all future private reader tables. Their owner key should be derived from `auth.jwt()->>'sub'`, and every read/write policy must compare that key to the requesting subject.
 
 For local Supabase development, `.env` also needs `CLERK_DOMAIN`; the checked-in `supabase/config.toml` uses it to enable Clerk as a local third-party provider.
@@ -30,6 +30,10 @@ npm start
 
 The first screen lists any missing settings when `.env` has not been configured. Once configured, account creation and sign-in open the same private shell, and signing out returns to the account screen.
 
+## Book search
+
+Catalog search uses the [public Google Books volumes list endpoint](https://developers.google.com/books/docs/v1/reference/volumes/list) and does not require a Google account. The app searches up to 20 book results and copies selected metadata into the reader's own Book record. If Google Books has no match or is unavailable, manual entry remains available.
+
 ## Verify ownership policies
 
-`npm run test:rls` runs the production migration in a local PostgreSQL-compatible engine and verifies that separate Clerk subjects cannot read, insert, update, or delete one another's profile rows. The app-flow tests use fake auth and profile services at the UI-to-service boundary; no test account or real user data is needed.
+`npm run test:rls` runs the production migrations in a local PostgreSQL-compatible engine and verifies that separate Clerk subjects cannot read, insert, update, or delete one another's profile or Book data, or manipulate another reader's TBR entries. The app-flow tests use fake auth, catalog, and data services at the UI-to-service boundary; no test account or real user data is needed.

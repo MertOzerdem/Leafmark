@@ -17,25 +17,20 @@ import type {
   ReaderProfile,
   ReaderProfileRepository,
 } from '../../auth/contracts';
+import type { BookCatalog, TbrRepository } from '../../books/bookTypes';
+import { journalColors as colors } from '../../theme/colors';
+import { TbrScreen } from '../books/TbrScreen';
 import { JournalAccents } from './JournalAccents';
 
 interface AppFlowProps {
   auth: AuthActions;
   session: AuthSession;
   profiles: ReaderProfileRepository;
+  catalog: BookCatalog;
+  tbr: TbrRepository;
 }
 
-const colors = {
-  paper: '#F7F5EB',
-  panel: '#FFFCF2',
-  ink: '#5A5746',
-  muted: '#898674',
-  olive: '#82876A',
-  line: '#D8D4C3',
-  error: '#9B5145',
-};
-
-export function AppFlow({ auth, session, profiles }: AppFlowProps) {
+export function AppFlow({ auth, session, profiles, catalog, tbr }: AppFlowProps) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -226,45 +221,49 @@ export function AppFlow({ auth, session, profiles }: AppFlowProps) {
   return (
     <View style={styles.screen}>
       <JournalAccents />
-      <View style={styles.privateShell}>
-        <Text style={styles.kicker}>LEAFMARK · PRIVATE READING JOURNAL</Text>
-        <Text style={styles.title}>Welcome back, {identity.username}.</Text>
-        <Text style={styles.intro}>Signed in as {identity.username}</Text>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.privateShell} keyboardShouldPersistTaps="handled">
+          <Text style={styles.kicker}>LEAFMARK · PRIVATE READING JOURNAL</Text>
+          <Text style={styles.title}>Welcome back, {identity.username}.</Text>
+          <Text style={styles.intro}>Signed in as {identity.username}</Text>
 
-        {isProfileLoading ? (
-          <View style={styles.profileLoading} testID="profile-loading">
-            <ActivityIndicator color={colors.olive} />
-            <Text style={styles.loadingText}>Loading your private reading space…</Text>
-          </View>
-        ) : profileError ? (
-          <View style={styles.profileCard}>
-            <Text accessibilityRole="alert" style={styles.error}>{profileError}</Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => void loadProfile(identity)}
-              style={styles.secondaryButton}
-            >
-              <Text style={styles.secondaryButtonText}>Try again</Text>
-            </Pressable>
-          </View>
-        ) : profile?.subject === subject ? (
-          <View style={styles.profileCard}>
-            <Text style={styles.profileTitle}>Your private shelf</Text>
-            <Text style={styles.profileLabel}>{profile.privateLabel}</Text>
-            <Text style={styles.profileHint}>Your account data is protected from other readers.</Text>
-          </View>
-        ) : null}
+          {isProfileLoading ? (
+            <View style={styles.profileLoading} testID="profile-loading">
+              <ActivityIndicator color={colors.olive} />
+              <Text style={styles.loadingText}>Loading your private reading space…</Text>
+            </View>
+          ) : profileError ? (
+            <View style={styles.profileCard}>
+              <Text accessibilityRole="alert" style={styles.error}>{profileError}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void loadProfile(identity)}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : profile?.subject === subject ? (
+            <View style={styles.profileCard}>
+              <Text style={styles.profileTitle}>Your private shelf</Text>
+              <Text style={styles.profileLabel}>{profile.privateLabel}</Text>
+              <Text style={styles.profileHint}>Your account data is protected from other readers.</Text>
+            </View>
+          ) : null}
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
-          }}
-          style={styles.secondaryButton}
-        >
-          <Text style={styles.secondaryButtonText}>Sign out</Text>
-        </Pressable>
-      </View>
+          <TbrScreen catalog={catalog} repository={tbr} />
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
+            }}
+            style={[styles.secondaryButton, styles.signOutButton]}
+          >
+            <Text style={styles.secondaryButtonText}>Sign out</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -317,7 +316,7 @@ const styles = StyleSheet.create({
   error: { color: colors.error, fontSize: 14, lineHeight: 20, marginTop: 14 },
   centeredScreen: { alignItems: 'center', backgroundColor: colors.paper, flex: 1, justifyContent: 'center' },
   loadingText: { color: colors.muted, fontSize: 14, marginTop: 12 },
-  privateShell: { flex: 1, justifyContent: 'center', padding: 32, width: '100%', maxWidth: 760, alignSelf: 'center' },
+  privateShell: { alignSelf: 'center', flexGrow: 1, justifyContent: 'flex-start', maxWidth: 900, padding: 32, width: '100%' },
   profileLoading: { alignItems: 'center', marginVertical: 30 },
   profileCard: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 20, borderWidth: 1, marginVertical: 30, padding: 24 },
   profileTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 24 },
@@ -325,4 +324,5 @@ const styles = StyleSheet.create({
   profileHint: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 10 },
   secondaryButton: { alignItems: 'center', alignSelf: 'flex-start', borderColor: colors.olive, borderRadius: 12, borderWidth: 1, justifyContent: 'center', marginTop: 16, minHeight: 48, paddingHorizontal: 20 },
   secondaryButtonText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+  signOutButton: { alignSelf: 'flex-end', marginBottom: 24 },
 });

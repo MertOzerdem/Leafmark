@@ -5,7 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 
 import type { AuthSession } from '../contracts';
 import { AppFlow } from '../../features/account/AppFlow';
+import { createGoogleBooksCatalog } from '../../catalog/googleBooksCatalog';
 import { createReaderProfileRepository } from '../../data/readerProfileRepository';
+import { createTbrRepository } from '../../data/tbrRepository';
 import { createClerkAuthActions } from './clerkAuthActions';
 
 interface ClerkAppProps {
@@ -46,6 +48,8 @@ function AuthenticatedApp({ supabaseUrl, supabasePublishableKey }: Omit<ClerkApp
     [supabasePublishableKey, supabaseUrl],
   );
   const profiles = useMemo(() => createReaderProfileRepository(supabase), [supabase]);
+  const tbr = useMemo(() => createTbrRepository(supabase), [supabase]);
+  const catalog = useMemo(() => createGoogleBooksCatalog(), []);
 
   const auth = useMemo(
     () => createClerkAuthActions(signIn, signUp, () => clerk.signOut()),
@@ -60,5 +64,5 @@ function AuthenticatedApp({ supabaseUrl, supabasePublishableKey }: Omit<ClerkApp
         : null,
   };
 
-  return <AppFlow auth={auth} session={authSession} profiles={profiles} />;
+  return <AppFlow auth={auth} session={authSession} profiles={profiles} catalog={catalog} tbr={tbr} />;
 }
