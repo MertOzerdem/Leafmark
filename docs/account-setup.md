@@ -12,7 +12,7 @@ Leafmark uses Clerk for username-and-password accounts and Supabase for synced r
 ## Configure Supabase
 
 1. In **Authentication → Sign In / Providers → Third-party Auth**, add Clerk with the domain from the Clerk integration setup.
-2. Apply the migrations in `supabase/migrations/` to the project. This creates private reader profiles, Books, and ordered TBR entries. With the Supabase CLI installed and the project linked, run `supabase db push`.
+2. Apply the migrations in `supabase/migrations/` to the project. This creates private reader profiles, Books, ordered TBR entries, and reader-owned Reading configurations, attempts, and daily logs. With the Supabase CLI installed and the project linked, run `supabase db push`.
 3. Keep Row Level Security enabled for all future private reader tables. Their owner key should be derived from `auth.jwt()->>'sub'`, and every read/write policy must compare that key to the requesting subject.
 
 For local Supabase development, `.env` also needs `CLERK_DOMAIN`; the checked-in `supabase/config.toml` uses it to enable Clerk as a local third-party provider.
@@ -36,4 +36,4 @@ Catalog search uses the [public Google Books volumes list endpoint](https://deve
 
 ## Verify ownership policies
 
-`npm run test:rls` runs the production migrations in a local PostgreSQL-compatible engine and verifies that separate Clerk subjects cannot read, insert, update, or delete one another's profile or Book data, or manipulate another reader's TBR entries. The app-flow tests use fake auth, catalog, and data services at the UI-to-service boundary; no test account or real user data is needed.
+`npm run test:rls` runs the production migrations in a local PostgreSQL-compatible engine and verifies that separate Clerk subjects cannot read, insert, update, or delete one another's profile or Book data, manipulate another reader's TBR entries, or access another reader's Reading activity. It also checks that daily totals map to the saved category ranges and that ranges cannot change after use. The app-flow tests use fake auth, catalog, and data services at the UI-to-service boundary; no test account or real user data is needed.

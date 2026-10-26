@@ -1,8 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { Book, BookDraft, TbrBook, TbrRepository } from '../books/bookTypes';
-
-const bookColumns = 'id, google_volume_id, title, authors, cover_url, categories, page_count, description';
+import type { BookDraft, TbrBook, TbrRepository } from '../books/bookTypes';
+import { asRecord, bookColumns, mapBookRecord, numberValue } from './bookMapper';
 
 export function createTbrRepository(client: SupabaseClient): TbrRepository {
   return {
@@ -19,7 +18,7 @@ export function createTbrRepository(client: SupabaseClient): TbrRepository {
 
       return data.map((row) => {
         const entry = asRecord(row);
-        return { ...mapBook(entry.book), position: numberValue(entry.position) };
+        return { ...mapBookRecord(entry.book), position: numberValue(entry.position) };
       });
     },
     async add(book) {
@@ -36,7 +35,7 @@ export function createTbrRepository(client: SupabaseClient): TbrRepository {
         .single();
 
       if (error) throw error;
-      return mapBook(data);
+      return mapBookRecord(data);
     },
     async update(bookId, book) {
       const { data, error } = await client
@@ -47,7 +46,7 @@ export function createTbrRepository(client: SupabaseClient): TbrRepository {
         .single();
 
       if (error) throw error;
-      return mapBook(data);
+      return mapBookRecord(data);
     },
     async remove(bookId) {
       const { error } = await client.from('tbr_entries').delete().eq('book_id', bookId);
@@ -59,7 +58,6 @@ export function createTbrRepository(client: SupabaseClient): TbrRepository {
     },
   };
 }
-
 function toDatabaseBook(book: BookDraft) {
   return {
     google_volume_id: book.googleVolumeId,
@@ -70,47 +68,4 @@ function toDatabaseBook(book: BookDraft) {
     page_count: book.pageCount,
     description: book.description,
   };
-}
-
-function mapBook(value: unknown): Book {
-  const row = asRecord(value);
-  const id = stringValue(row.id);
-  const title = stringValue(row.title);
-  if (!id || !title) throw new Error('The data service returned an incomplete Book record.');
-
-  return {
-    id,
-    googleVolumeId: nullableString(row.google_volume_id),
-    title,
-    authors: stringArray(row.authors),
-    coverUrl: nullableString(row.cover_url),
-    categories: stringArray(row.categories),
-    pageCount: nullableNumber(row.page_count),
-    description: nullableString(row.description),
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (Array.isArray(value)) return asRecord(value[0]);
-  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-function nullableNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) ? value : null;
-}
-
-function numberValue(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }

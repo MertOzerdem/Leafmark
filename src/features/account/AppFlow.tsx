@@ -18,8 +18,10 @@ import type {
   ReaderProfileRepository,
 } from '../../auth/contracts';
 import type { BookCatalog, TbrRepository } from '../../books/bookTypes';
+import type { ReadingRepository } from '../../reading/readingTypes';
 import { journalColors as colors } from '../../theme/colors';
 import { TbrScreen } from '../books/TbrScreen';
+import { ReadingTrackerScreen } from '../reading/ReadingTrackerScreen';
 import { JournalAccents } from './JournalAccents';
 
 interface AppFlowProps {
@@ -28,9 +30,10 @@ interface AppFlowProps {
   profiles: ReaderProfileRepository;
   catalog: BookCatalog;
   tbr: TbrRepository;
+  reading: ReadingRepository;
 }
 
-export function AppFlow({ auth, session, profiles, catalog, tbr }: AppFlowProps) {
+export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppFlowProps) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -251,6 +254,7 @@ export function AppFlow({ auth, session, profiles, catalog, tbr }: AppFlowProps)
             </View>
           ) : null}
 
+          <ReadingTrackerScreen repository={reading} />
           <TbrScreen catalog={catalog} repository={tbr} />
 
           <Pressable
