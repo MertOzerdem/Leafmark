@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -37,6 +37,7 @@ interface AppFlowProps {
   reading: ReadingRepository;
   bookPages: BookPageRepository;
   bookshelf: BookshelfRepository;
+  backupControls?: ReactNode;
   storageStatus?: string;
 }
 
@@ -51,6 +52,7 @@ export function AppFlow({
   reading,
   bookPages,
   bookshelf,
+  backupControls,
   storageStatus,
 }: AppFlowProps) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
@@ -257,6 +259,7 @@ export function AppFlow({
             <Text style={styles.privacyNote}>
               This account is saved only on this iPad. Leafmark does not sync it to another device.
             </Text>
+            {backupControls}
             {storageStatus ? (
               <Text accessibilityLiveRegion="polite" style={styles.privacyNote} testID="storage-status">
                 {storageStatus}
@@ -319,6 +322,7 @@ export function AppFlow({
                   {storageStatus}
                 </Text>
               ) : null}
+              {backupControls}
             </View>
           ) : null}
 

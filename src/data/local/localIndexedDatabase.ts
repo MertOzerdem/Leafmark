@@ -88,6 +88,9 @@ export function createIndexedLocalAuthActions(
     async signUp(username, password) {
       const displayName = username.trim();
       validateCredentials(displayName, password);
+      if (await readAccountByUsername(database, normalizeLocalUsername(displayName))) {
+        throw new Error('That username is already in use on this iPad.');
+      }
 
       const id = createId();
       const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
@@ -96,7 +99,7 @@ export function createIndexedLocalAuthActions(
       const account: LocalAccountRecord = {
         id,
         username: displayName,
-        normalizedUsername: normalizeUsername(displayName),
+        normalizedUsername: normalizeLocalUsername(displayName),
         passwordSalt: salt,
         passwordHash,
         createdAt: new Date().toISOString(),
@@ -124,8 +127,9 @@ export function createIndexedLocalAuthActions(
     },
 
     async signIn(username, password) {
-      const normalizedUsername = normalizeUsername(username.trim());
-      const account = await readAccountByUsername(database, normalizedUsername);
+      const displayName = username.trim();
+      const normalizedUsername = normalizeLocalUsername(displayName);
+      const account = await readAccountByUsername(database, normalizedUsername, displayName);
       if (!account || !password) throw new Error('The username or password is incorrect.');
 
       const attempt = await hashPassword(password, account.passwordSalt);
@@ -194,13 +198,14 @@ export function persistentStorageMessage(status: PersistentStorageStatus): strin
   }
 }
 
-function readAccountByUsername(database: IDBDatabase, normalizedUsername: string): Promise<LocalAccountRecord | undefined> {
+function readAccountByUsername(database: IDBDatabase, normalizedUsername: string, exactUsername?: string): Promise<LocalAccountRecord | undefined> {
   return new Promise((resolve, reject) => {
-    const request = database.transaction('accounts', 'readonly')
-      .objectStore('accounts')
-      .index('normalizedUsername')
-      .get(normalizedUsername);
-    request.onsuccess = () => resolve(request.result as LocalAccountRecord | undefined);
+    const request = database.transaction('accounts', 'readonly').objectStore('accounts').getAll();
+    request.onsuccess = () => {
+      const accounts = request.result as LocalAccountRecord[];
+      const exact = exactUsername ? accounts.find((account) => account.username.trim() === exactUsername) : undefined;
+      resolve(exact ?? accounts.find((account) => normalizeLocalUsername(account.username) === normalizedUsername));
+    };
     request.onerror = () => reject(request.error ?? new Error('Leafmark could not read local accounts.'));
   });
 }
@@ -270,8 +275,8 @@ function validateCredentials(username: string, password: string): void {
   if (password.length < 8 || password.length > 128) throw new Error('Choose a password between 8 and 128 characters.');
 }
 
-function normalizeUsername(username: string): string {
-  return username.toLocaleLowerCase();
+export function normalizeLocalUsername(username: string): string {
+  return username.trim().toLowerCase();
 }
 
 function createId(): string {

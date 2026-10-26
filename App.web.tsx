@@ -12,8 +12,10 @@ import {
   requestPersistentStorage,
   restoreLocalIndexedSession,
 } from './src/data/local/localIndexedDatabase';
+import { createLocalBackupRepository } from './src/data/local/localBackup';
 import { createEmptyLocalBookStore, createLocalRepositories, type LocalRepositories } from './src/data/local/localRepositories';
 import { AppFlow } from './src/features/account/AppFlow';
+import { LocalBackupControls } from './src/features/account/LocalBackupControls.web';
 import { journalColors as colors } from './src/theme/colors';
 import type { PersistentStorageStatus } from './src/data/local/localIndexedDatabase';
 
@@ -88,6 +90,10 @@ export default function App() {
     [],
   );
   const catalog = useMemo(() => createGoogleBooksCatalog(), []);
+  const backupRepository = useMemo(() => database ? createLocalBackupRepository(database) : null, [database]);
+  const backupControls = useMemo(() => backupRepository ? (
+    <LocalBackupControls repository={backupRepository} onRestoreComplete={() => window.location.reload()} />
+  ) : null, [backupRepository]);
 
   if (startupError) {
     return (
@@ -111,6 +117,7 @@ export default function App() {
         reading={repositories?.reading ?? emptyRepositories.reading}
         bookPages={repositories?.bookPages ?? emptyRepositories.bookPages}
         bookshelf={repositories?.bookshelf ?? emptyRepositories.bookshelf}
+        backupControls={backupControls}
         storageStatus={persistentStorageMessage(storageStatus)}
       />
       <StatusBar style="dark" />
