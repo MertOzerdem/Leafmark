@@ -10,6 +10,6 @@
   "background_color": "#f7f5eb",
   "theme_color": "#f7f5eb",
   "icons": [
-    { "src": "/Leafmark/assets/icon.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
+    { "src": "/Leafmark/leafmark-icon.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
   ]
 }

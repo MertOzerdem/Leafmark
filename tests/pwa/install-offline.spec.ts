@@ -9,11 +9,27 @@ test('the iPad Home Screen app opens its cached Leafmark shell offline', async (
 
   const manifest = await page.evaluate(async () => {
     const response = await fetch(new URL('manifest.webmanifest', document.baseURI));
-    return response.json() as Promise<{ name: string; start_url: string; display: string }>;
+    return response.json() as Promise<{
+      name: string;
+      start_url: string;
+      display: string;
+      icons: Array<{ src: string; sizes: string; type: string }>;
+    }>;
   });
   expect(manifest.name).toBe('Leafmark');
   expect(manifest.start_url).toContain('/Leafmark/');
   expect(manifest.display).toBe('standalone');
+  expect(manifest.icons[0]).toMatchObject({
+    src: '/Leafmark/leafmark-icon.png',
+    sizes: '1024x1024',
+    type: 'image/png',
+  });
+  const iconResponse = await page.request.get(new URL(manifest.icons[0].src, page.url()).toString());
+  expect(iconResponse.ok()).toBe(true);
+  expect(iconResponse.headers()['content-type']).toContain('image/png');
+  expect(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href')).toBe(
+    '/Leafmark/leafmark-icon.png',
+  );
 
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
