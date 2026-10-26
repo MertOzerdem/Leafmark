@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Leafmark",
+    "slug": "leafmark",
+    "scheme": "leafmark",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "com.leafmark.reader",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.leafmark.reader",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": ["expo-secure-store", "@clerk/expo"],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

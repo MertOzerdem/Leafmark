@@ -1,0 +1,41 @@
+{
+  "name": "leafmark",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "typecheck": "tsc --noEmit",
+    "check:expo-dependencies": "expo install --check",
+    "test": "jest --runInBand",
+    "test:rls": "node --test tests/rls/*.test.mjs"
+  },
+  "dependencies": {
+    "@clerk/expo": "^4.14.1",
+    "@supabase/supabase-js": "^2.118.0",
+    "expo": "~58.0.19",
+    "expo-secure-store": "~58.0.2",
+    "expo-status-bar": "~58.0.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-url-polyfill": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "^30.0.0",
+    "@types/react": "~19.3.0",
+    "jest": "^30.5.2",
+    "jest-expo": "~58.0.12",
+    "typescript": "~6.0.3"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "testMatch": [
+      "**/src/**/*.test.ts?(x)"
+    ]
+  }
+}
