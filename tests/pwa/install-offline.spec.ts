@@ -30,6 +30,8 @@ test('the iPad Home Screen app opens its cached Leafmark shell offline', async (
   expect(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href')).toBe(
     '/Leafmark/leafmark-icon.png',
   );
+  const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
+  expect(favicon).toBe('/Leafmark/favicon.ico');
 
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
