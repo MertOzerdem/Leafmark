@@ -3,9 +3,10 @@ import { expect, test } from '@playwright/test';
 test('the iPad Home Screen app opens its cached Leafmark shell offline', async ({ page }) => {
   await page.goto('./');
 
-  await expect(page.getByRole('heading', { name: 'A reading journal that stays on this iPad.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your reading life, gathered in one place.' })).toBeVisible();
   await expect(page.getByText('Open Leafmark in Safari, tap Share, then choose Add to Home Screen.')).toBeVisible();
   await expect(page.getByText('Connect to the internet for the first visit and app updates.')).toBeVisible();
+  await expect(page.getByText('Open Leafmark from the Home Screen to request persistent storage.')).toBeVisible();
 
   const manifest = await page.evaluate(async () => {
     const response = await fetch(new URL('manifest.webmanifest', document.baseURI));
@@ -55,6 +56,6 @@ test('the iPad Home Screen app opens its cached Leafmark shell offline', async (
 
   await page.context().setOffline(true);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'A reading journal that stays on this iPad.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your reading life, gathered in one place.' })).toBeVisible();
   await expect(page.getByText('Your journal opens offline after the first visit.')).toBeVisible();
 });

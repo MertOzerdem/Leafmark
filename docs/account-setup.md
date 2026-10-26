@@ -1,21 +1,20 @@
 # Local account and data setup
 
-Leafmark creates username-and-password accounts directly on the iPad. Account credentials and reading data stay in Leafmark's local SQLite database; the active account ID is kept in iOS SecureStore. Each account has a separate local journal. Signing out and signing into another account on the same iPad switches workspaces.
+The active Leafmark product is the iPad Safari PWA. It stores username-and-password profiles and each reader’s journal in IndexedDB for the current site origin on that device. No account, password, reading history, or Book page data is sent to a Leafmark backend; the public GitHub Pages site serves application files only.
 
-These accounts are local profiles, not online identities. Leafmark has no application server, Clerk, Supabase, cloud backup, password recovery, or cross-device synchronization. A local account cannot be moved to another device in this release. Do not present a local account as a cloud security boundary; it partitions the app's data for readers who share one iPad.
+Profiles are local workspace partitions for readers who share one iPad. They are not online identities or a security boundary. The active profile is restored when Leafmark reopens, and completed journal changes are saved to IndexedDB automatically. Passwords are stored as salted PBKDF2 verifiers rather than plaintext. There is no password recovery or device sync.
 
-## Run on iPad
+## Open Leafmark on iPad
 
-Install dependencies and start the iOS build:
+Open the published Leafmark site in Safari. For the app-style window, tap **Share**, choose **Add to Home Screen**, and open the new Home Screen icon. The PWA requests persistent origin storage when it detects that standalone launch and shows whether Safari granted it. If the grant is unavailable, Safari may remove site data during storage cleanup; the backup workflow is tracked separately.
 
-```sh
-npm install
-npm run ios
-```
+The first visit and application updates require internet. After the service worker caches the application shell, account and journal workflows use on-device data and can reopen offline.
 
-The first launch creates `leafmark.db` and its local account/workspace tables automatically. Create a local username and password on the iPad. The password verifier is salted and derived with PBKDF2; the password itself is not written to SQLite. Leafmark keeps the local session until the reader signs out.
+## Local account behavior
 
-There is no password recovery. Removing the app or losing the iPad may remove the local journal. Account export and device transfer are future decisions.
+Create a username and password on the device. Leafmark keeps the active local profile until sign-out. Signing into another existing profile switches to that profile’s separate workspace. Usernames are unique within the browser’s Leafmark database.
+
+Removing site data can remove every local profile and journal. Account export and restore are tracked separately. A local profile cannot be moved to a new device by signing in.
 
 ## Book search
 
@@ -23,4 +22,6 @@ Catalog search uses the [public Google Books volumes list endpoint](https://deve
 
 ## Verify local behavior
 
-`npm run typecheck` checks TypeScript and `npm test` runs app-flow and local-account tests. App-flow tests use deterministic auth, catalog, and data services at the UI-to-app-services boundary. On iPad, manually verify account creation, sign-out/sign-in, switching between two local accounts, and persistence after reopening the app.
+`npm run typecheck` checks TypeScript. `npm test` runs unit and app-flow tests. `npx playwright test` runs PWA tests against a local exported site, including account creation, sign-in, workspace separation, reload persistence, storage-status behavior, and offline app-shell loading. The manual iPad walkthrough verifies Safari Home Screen installation, standalone launch, two-profile switching, workspace separation, saved data after closing and reopening Leafmark, and the displayed storage grant.
+
+The earlier React Native and Expo implementation remains shelved source code. Its native local SQLite account implementation is not the active PWA storage path.

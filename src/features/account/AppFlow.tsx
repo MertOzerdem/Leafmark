@@ -37,6 +37,7 @@ interface AppFlowProps {
   reading: ReadingRepository;
   bookPages: BookPageRepository;
   bookshelf: BookshelfRepository;
+  storageStatus?: string;
 }
 
 type AppSection = 'bookshelf' | 'tracker' | 'read-books' | 'tbr';
@@ -50,6 +51,7 @@ export function AppFlow({
   reading,
   bookPages,
   bookshelf,
+  storageStatus,
 }: AppFlowProps) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [username, setUsername] = useState('');
@@ -166,10 +168,20 @@ export function AppFlow({
         <ScrollView contentContainerStyle={styles.authContent} keyboardShouldPersistTaps="handled">
           <View style={styles.authCard}>
             <Text style={styles.kicker}>LEAFMARK · LOCAL READING JOURNAL</Text>
-            <Text style={styles.title}>Your reading life, gathered in one place.</Text>
+            <Text accessibilityRole="header" style={styles.title}>Your reading life, gathered in one place.</Text>
             <Text style={styles.intro}>
               Create an account on this iPad or sign in to keep each reader’s books and notes separate in Leafmark’s local database.
             </Text>
+            {storageStatus ? (
+              <>
+                <View style={styles.installNote}>
+                  <Text style={styles.installTitle}>Made for your Home Screen</Text>
+                  <Text style={styles.installText}>Open Leafmark in Safari, tap Share, then choose Add to Home Screen.</Text>
+                </View>
+                <Text style={styles.privacyNote}>Connect to the internet for the first visit and app updates.</Text>
+                <Text style={styles.privacyNote}>Your journal opens offline after the first visit.</Text>
+              </>
+            ) : null}
 
             <Text style={styles.fieldLabel}>Username</Text>
             <TextInput
@@ -245,6 +257,11 @@ export function AppFlow({
             <Text style={styles.privacyNote}>
               This account is saved only on this iPad. Leafmark does not sync it to another device.
             </Text>
+            {storageStatus ? (
+              <Text accessibilityLiveRegion="polite" style={styles.privacyNote} testID="storage-status">
+                {storageStatus}
+              </Text>
+            ) : null}
             <Text style={styles.privacyNote}>There is no password recovery. Keep your password safe.</Text>
           </View>
         </ScrollView>
@@ -297,6 +314,11 @@ export function AppFlow({
               <Text style={styles.profileTitle}>Your local shelf</Text>
               <Text style={styles.profileLabel}>{profile.privateLabel}</Text>
               <Text style={styles.profileHint}>Your books, notes, and layout are saved on this iPad and are not synced.</Text>
+              {storageStatus ? (
+                <Text accessibilityLiveRegion="polite" style={styles.profileHint} testID="storage-status">
+                  {storageStatus}
+                </Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -374,6 +396,9 @@ const styles = StyleSheet.create({
   modeButton: { alignItems: 'center', marginTop: 18, padding: 8 },
   modeButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
   privacyNote: { color: colors.muted, fontSize: 12, marginTop: 20, textAlign: 'center' },
+  installNote: { backgroundColor: '#F2EFDF', borderRadius: 18, marginTop: 28, padding: 18 },
+  installTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 18 },
+  installText: { color: colors.ink, fontSize: 14, lineHeight: 21, marginTop: 7 },
   error: { color: colors.error, fontSize: 14, lineHeight: 20, marginTop: 14 },
   centeredScreen: { alignItems: 'center', backgroundColor: colors.paper, flex: 1, justifyContent: 'center' },
   loadingText: { color: colors.muted, fontSize: 14, marginTop: 12 },
