@@ -6,28 +6,24 @@
     "version": "0.1.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
+    "platforms": ["ios", "web"],
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.leafmark.reader",
-      "supportsTablet": true
-    },
-    "android": {
-      "package": "com.leafmark.reader",
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+      "supportsTablet": true,
+      "isTabletOnly": true
     },
     "plugins": [
       "expo-secure-store",
-      "@clerk/expo",
       ["expo-image-picker", { "photosPermission": "Allow Leafmark to add illustrations to your private Book pages." }]
     ],
     "web": {
+      "bundler": "metro",
+      "output": "single",
       "favicon": "./assets/favicon.png"
+    },
+    "experiments": {
+      "baseUrl": "/Leafmark"
     }
   }
 }

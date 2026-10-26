@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f5eb" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Leafmark" />
+    <link rel="manifest" href="/Leafmark/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/Leafmark/assets/icon.png" />
+    <title>Leafmark · Reading Journal</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+        background: #f7f5eb;
+      }
+      body {
+        overflow: auto;
+      }
+      #root {
+        display: flex;
+        min-height: 100vh;
+        min-height: 100dvh;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>Leafmark needs JavaScript enabled to open your reading journal.</noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register(new URL('sw.js', document.baseURI), {
+            scope: new URL('.', document.baseURI).pathname
+          }).catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>

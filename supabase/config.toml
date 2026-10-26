@@ -1,5 +1,0 @@
-project_id = "leafmark"
-
-[auth.third_party.clerk]
-enabled = true
-domain = "env(CLERK_DOMAIN)"

@@ -1,0 +1,15 @@
+{
+  "id": "/Leafmark/",
+  "name": "Leafmark",
+  "short_name": "Leafmark",
+  "description": "A private, offline-first reading journal for iPad.",
+  "start_url": "/Leafmark/",
+  "scope": "/Leafmark/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f5eb",
+  "theme_color": "#f7f5eb",
+  "icons": [
+    { "src": "/Leafmark/assets/icon.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -2,6 +2,14 @@
 
 Terms for the reader's personal reading history, book pages, annual tracker, and visual digital bookshelf.
 
+## Accounts and storage
+
+**Local account**:
+A username-and-password profile stored on one iPad. In the active PWA, its Book, Reading, and bookshelf data live in that browser's IndexedDB. The shelved native app stores its data in local SQLite. A local account is not an online identity and does not sync to other devices.
+
+**IndexedDB journal**:
+The browser-managed local database used by the active PWA for reader profiles and journal data. It is scoped to the Leafmark site origin on one device and is never sent to GitHub Pages.
+
 ## Books and collection
 
 **Book**:

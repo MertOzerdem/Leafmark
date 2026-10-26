@@ -41,7 +41,16 @@ interface AppFlowProps {
 
 type AppSection = 'bookshelf' | 'tracker' | 'read-books' | 'tbr';
 
-export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPages, bookshelf }: AppFlowProps) {
+export function AppFlow({
+  auth,
+  session,
+  profiles,
+  catalog,
+  tbr,
+  reading,
+  bookPages,
+  bookshelf,
+}: AppFlowProps) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -108,8 +117,12 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPa
       setFormError('Choose a username between 4 and 64 characters.');
       return;
     }
-    if (!password) {
-      setFormError('Enter your password.');
+    if ((isCreatingAccount && password.length < 8) || !password) {
+      setFormError(isCreatingAccount ? 'Choose a password with at least 8 characters.' : 'Enter your password.');
+      return;
+    }
+    if (password.length > 128) {
+      setFormError('Passwords must be no longer than 128 characters.');
       return;
     }
     if (isCreatingAccount && password !== confirmation) {
@@ -121,6 +134,7 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPa
     try {
       if (isCreatingAccount) {
         await auth.signUp(normalizedUsername, password);
+        setIsCreatingAccount(false);
       } else {
         await auth.signIn(normalizedUsername, password);
       }
@@ -151,10 +165,10 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPa
         <JournalAccents />
         <ScrollView contentContainerStyle={styles.authContent} keyboardShouldPersistTaps="handled">
           <View style={styles.authCard}>
-            <Text style={styles.kicker}>LEAFMARK · YOUR PRIVATE READING JOURNAL</Text>
+            <Text style={styles.kicker}>LEAFMARK · LOCAL READING JOURNAL</Text>
             <Text style={styles.title}>Your reading life, gathered in one place.</Text>
             <Text style={styles.intro}>
-              Sign in to keep your books, notes, and reading history with you across devices.
+              Create an account on this iPad or sign in to keep each reader’s books and notes separate in Leafmark’s local database.
             </Text>
 
             <Text style={styles.fieldLabel}>Username</Text>
@@ -228,7 +242,10 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPa
               </Text>
             </Pressable>
 
-            <Text style={styles.privacyNote}>Only your account can open your reading space.</Text>
+            <Text style={styles.privacyNote}>
+              This account is saved only on this iPad. Leafmark does not sync it to another device.
+            </Text>
+            <Text style={styles.privacyNote}>There is no password recovery. Keep your password safe.</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -241,13 +258,14 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPa
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
         <View style={styles.appHeader}>
           <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>LEAFMARK · PRIVATE READING JOURNAL</Text>
+            <Text style={styles.kicker}>LEAFMARK · LOCAL READING JOURNAL</Text>
             <Text style={styles.headerTitle}>Welcome back, {identity.username}.</Text>
-            <Text style={styles.headerSubtitle}>Signed in as {identity.username}</Text>
+            <Text style={styles.headerSubtitle}>Local account on this iPad · {identity.username}</Text>
           </View>
           <Pressable
             accessibilityRole="button"
             onPress={() => {
+              setIsCreatingAccount(false);
               void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
             }}
             style={styles.headerSignOut}
@@ -276,9 +294,9 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading, bookPa
             </View>
           ) : profile?.subject === subject ? (
             <View style={styles.profileCard}>
-              <Text style={styles.profileTitle}>Your private shelf</Text>
+              <Text style={styles.profileTitle}>Your local shelf</Text>
               <Text style={styles.profileLabel}>{profile.privateLabel}</Text>
-              <Text style={styles.profileHint}>Your account data is protected from other readers.</Text>
+              <Text style={styles.profileHint}>Your books, notes, and layout are saved on this iPad and are not synced.</Text>
             </View>
           ) : null}
 

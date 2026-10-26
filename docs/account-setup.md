@@ -1,39 +1,26 @@
-# Account and private data setup
+# Local account and data setup
 
-Leafmark uses Clerk for username-and-password accounts and Supabase for synced reader-owned data. The app sends the signed-in Clerk session token to Supabase; PostgreSQL row-level security checks the Clerk `sub` claim on every profile, Book, or TBR read or write.
+Leafmark creates username-and-password accounts directly on the iPad. Account credentials and reading data stay in Leafmark's local SQLite database; the active account ID is kept in iOS SecureStore. Each account has a separate local journal. Signing out and signing into another account on the same iPad switches workspaces.
 
-## Configure Clerk
+These accounts are local profiles, not online identities. Leafmark has no application server, Clerk, Supabase, cloud backup, password recovery, or cross-device synchronization. A local account cannot be moved to another device in this release. Do not present a local account as a cloud security boundary; it partitions the app's data for readers who share one iPad.
 
-1. Create a Clerk application and enable its Native API for native app authentication.
-2. In **User & authentication**, enable username for sign-up and sign-in, and enable password sign-up and sign-in.
-3. Do not require email or phone for this first release. Keep the instance's access mode open so a reader can create an account. Password recovery is intentionally outside this ticket because it needs a verified recovery channel.
-4. In the Clerk Supabase integration, connect this Clerk instance to the Supabase project and copy its Clerk domain.
+## Run on iPad
 
-## Configure Supabase
-
-1. In **Authentication → Sign In / Providers → Third-party Auth**, add Clerk with the domain from the Clerk integration setup.
-2. Apply the migrations in `supabase/migrations/` to the project. This creates private reader profiles, Books, ordered TBR entries, Reading configurations, attempts, daily logs, finish dates, ratings, customizable Book page fields and values, bookshelf layouts, and the private illustration bucket. With the Supabase CLI installed and the project linked, run `supabase db push`.
-3. Keep Row Level Security enabled for all future private reader tables. Their owner key should be derived from `auth.jwt()->>'sub'`, and every read/write policy must compare that key to the requesting subject.
-
-For local Supabase development, `.env` also needs `CLERK_DOMAIN`; the checked-in `supabase/config.toml` uses it to enable Clerk as a local third-party provider.
-
-## Run the app
-
-Copy `.env.example` to `.env` and fill in the Clerk publishable key, Supabase project URL, and Supabase publishable key. These are client-side public settings; never place a Clerk secret key or Supabase service-role key in an `EXPO_PUBLIC_` variable or in the app.
-
-Then run:
+Install dependencies and start the iOS build:
 
 ```sh
 npm install
-npm start
+npm run ios
 ```
 
-The first screen lists any missing settings when `.env` has not been configured. Once configured, account creation and sign-in open the same private shell, and signing out returns to the account screen.
+The first launch creates `leafmark.db` and its local account/workspace tables automatically. Create a local username and password on the iPad. The password verifier is salted and derived with PBKDF2; the password itself is not written to SQLite. Leafmark keeps the local session until the reader signs out.
+
+There is no password recovery. Removing the app or losing the iPad may remove the local journal. Account export and device transfer are future decisions.
 
 ## Book search
 
-Catalog search uses the [public Google Books volumes list endpoint](https://developers.google.com/books/docs/v1/reference/volumes/list) and does not require a Google account. The app searches up to 20 book results and copies selected metadata into the reader's own Book record. If Google Books has no match or is unavailable, manual entry remains available.
+Catalog search uses the [public Google Books volumes list endpoint](https://developers.google.com/books/docs/v1/reference/volumes/list). Search requires an internet connection, but it does not create a Leafmark account or send reading-journal data. Selected book details are copied into the local account's editable Book record; manual entry remains available.
 
-## Verify ownership policies
+## Verify local behavior
 
-`npm run test:rls` runs the production migrations in a local PostgreSQL-compatible engine and verifies that separate Clerk subjects cannot read, insert, update, or delete one another's profile, Book, TBR, Reading activity, Book page, bookshelf, or private illustration data. It also checks that daily totals map to saved category ranges, ranges cannot change after use, colors can be shared across configuration baselines, and finishing a book removes its TBR entry while rereads create another attempt on the same Book. The app-flow tests use fake auth, catalog, and data services at the UI-to-service boundary; no test account or real user data is needed.
+`npm run typecheck` checks TypeScript and `npm test` runs app-flow and local-account tests. App-flow tests use deterministic auth, catalog, and data services at the UI-to-app-services boundary. On iPad, manually verify account creation, sign-out/sign-in, switching between two local accounts, and persistence after reopening the app.

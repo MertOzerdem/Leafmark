@@ -29,12 +29,12 @@ function TestApp({ initialIdentity = null, seedGardenInTbr = false, seedGardenCo
     () => ({
       async signIn(username) {
         setIsLoaded(false);
-        setIdentity({ subject: `clerk:${username}`, username });
+        setIdentity({ subject: `local:${username}`, username });
         setIsLoaded(true);
       },
       async signUp(username) {
         setIsLoaded(false);
-        setIdentity({ subject: `clerk:${username}`, username });
+        setIdentity({ subject: `local:${username}`, username });
         setIsLoaded(true);
       },
       async signOut() {
@@ -50,7 +50,7 @@ function TestApp({ initialIdentity = null, seedGardenInTbr = false, seedGardenCo
         return {
           subject: currentIdentity.subject,
           username: currentIdentity.username,
-          privateLabel: `Private shelf for ${currentIdentity.username}`,
+          privateLabel: `Local shelf for ${currentIdentity.username}`,
         };
       },
     }),
@@ -403,20 +403,20 @@ describe('private account app flow', () => {
     await fireEvent.changeText(screen.getByLabelText('Confirm password'), 'correct horse battery');
     await fireEvent.press(screen.getByRole('button', { name: 'Create account' }));
 
-    await waitFor(() => expect(screen.getByText('Private shelf for reader-ivy')).toBeTruthy());
-    expect(screen.getByText('Signed in as reader-ivy')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Local shelf for reader-ivy')).toBeTruthy());
+    expect(screen.getByText('Local account on this iPad · reader-ivy')).toBeTruthy();
 
     await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
 
     await waitFor(() => expect(screen.getByText('Your reading life, gathered in one place.')).toBeTruthy());
-    expect(screen.queryByText('Private shelf for reader-ivy')).toBeNull();
+    expect(screen.queryByText('Local shelf for reader-ivy')).toBeNull();
   });
 
   it('loads private profile data using the signed-in account identity', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-sage', username: 'reader-sage' }} />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-sage', username: 'reader-sage' }} />);
 
-    await waitFor(() => expect(screen.getByText('Private shelf for reader-sage')).toBeTruthy());
-    expect(screen.getByText('Signed in as reader-sage')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Local shelf for reader-sage')).toBeTruthy());
+    expect(screen.getByText('Local account on this iPad · reader-sage')).toBeTruthy();
   });
 
   it('signs into an existing account with its username and password', async () => {
@@ -426,8 +426,8 @@ describe('private account app flow', () => {
     await fireEvent.changeText(screen.getByLabelText('Password'), 'reader password');
     await fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
 
-    await waitFor(() => expect(screen.getByText('Private shelf for reader-sage')).toBeTruthy());
-    expect(screen.getByText('Signed in as reader-sage')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Local shelf for reader-sage')).toBeTruthy());
+    expect(screen.getByText('Local account on this iPad · reader-sage')).toBeTruthy();
   });
 
   it('keeps the private app shell hidden while the auth session is unresolved', async () => {
@@ -487,7 +487,7 @@ describe('private account app flow', () => {
       return (
         <AppFlow
           auth={auth}
-          session={{ isLoaded: false, identity: { subject: 'clerk:pending', username: 'pending' } }}
+          session={{ isLoaded: false, identity: { subject: 'local:pending', username: 'pending' } }}
           profiles={profiles}
           catalog={catalog}
           tbr={tbr}
@@ -500,12 +500,12 @@ describe('private account app flow', () => {
 
     await render(<UnresolvedSession />);
 
-    expect(screen.queryByText('Private shelf for pending')).toBeNull();
+    expect(screen.queryByText('Local shelf for pending')).toBeNull();
     expect(screen.getByTestId('session-loading')).toBeTruthy();
   });
 
   it('tracks one daily total for the Current book and lets the reader correct its date and Book', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-june', username: 'reader-june' }} />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-june', username: 'reader-june' }} />);
 
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await waitFor(() => expect(screen.getByText('2027 Reading Log')).toBeTruthy());
@@ -542,7 +542,7 @@ describe('private account app flow', () => {
   });
 
   it('keeps same-day totals separate when the reader starts a new measure baseline', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-baseline', username: 'reader-baseline' }} />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-baseline', username: 'reader-baseline' }} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Set reading measure to Pages' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save reading settings' }));
@@ -575,7 +575,7 @@ describe('private account app flow', () => {
   });
 
   it('finishes a Book, removes it from TBR, and records a reread on the same Book page', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-rose', username: 'reader-rose' }} seedGardenInTbr />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-rose', username: 'reader-rose' }} seedGardenInTbr />);
 
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-02');
@@ -611,7 +611,7 @@ describe('private account app flow', () => {
   });
 
   it('opens month details with daily totals, start and finish events, and yearly reread counts', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-calendar', username: 'reader-calendar' }} />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-calendar', username: 'reader-calendar' }} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Set reading measure to Pages' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save reading settings' }));
@@ -645,7 +645,7 @@ describe('private account app flow', () => {
   });
 
   it('personalizes Book pages with a reusable template, private fields, Undo, and delete confirmation', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-notes', username: 'reader-notes' }} seedGardenInTbr />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-notes', username: 'reader-notes' }} seedGardenInTbr />);
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-02');
     await fireEvent.press(screen.getByRole('button', { name: 'Start A Garden of Stories' }));
@@ -695,7 +695,7 @@ describe('private account app flow', () => {
   });
 
   it('uses the bookshelf as home and saves automatic placement, orientation, colors, and decorations', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-shelf', username: 'reader-shelf' }} seedGardenInTbr seedGardenCover />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-shelf', username: 'reader-shelf' }} seedGardenInTbr seedGardenCover />);
     expect(screen.getByTestId('digital-bookshelf')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-02');
@@ -724,7 +724,7 @@ describe('private account app flow', () => {
   });
 
   it('searches, manually adds, edits, reorders, and removes Books in the TBR', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-ivy', username: 'reader-ivy' }} />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-ivy', username: 'reader-ivy' }} />);
 
     await fireEvent.press(screen.getByRole('button', { name: 'Open TBR' }));
     await waitFor(() => expect(screen.getAllByText('To Be Read').length).toBeGreaterThan(0));
@@ -776,7 +776,7 @@ describe('private account app flow', () => {
   });
 
   it('lets a reader create a manual Book when Google Books has no suitable result', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-june', username: 'reader-june' }} />);
+    await render(<TestApp initialIdentity={{ subject: 'local:reader-june', username: 'reader-june' }} />);
 
     await fireEvent.press(screen.getByRole('button', { name: 'Open TBR' }));
     await fireEvent.changeText(screen.getByLabelText('Search books by title or author'), 'unlisted novel');

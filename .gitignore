@@ -33,7 +33,6 @@ yarn-error.*
 # local env files
 .env
 .env.*
-!.env.example
 .env*.local
 
 # typescript
@@ -42,3 +41,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Browser end-to-end test artifacts
+/test-results/
+/playwright-report/
