@@ -4,6 +4,8 @@ Leafmark is a private reading journal designed for iPad. The active delivery tar
 
 The PWA is a static site hosted by GitHub Pages. It has no Leafmark backend, paid runtime service, cloud account, or device sync. The journal stays in browser storage on the iPad; export and restore are the way to move it to another device.
 
+Published app: [https://mertozerdem.github.io/Leafmark/](https://mertozerdem.github.io/Leafmark/)
+
 ## Build and preview
 
 ```sh
