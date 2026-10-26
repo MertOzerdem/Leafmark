@@ -51,16 +51,19 @@ export function createBookshelfRepository(client: SupabaseClient): BookshelfRepo
       const { error } = await client.from('bookshelf_items').update({ spine_color: color, spine_color_customized: true }).eq('book_id', bookId);
       if (error) throw error;
     },
+    async setDefaultSpineColor(bookId, color) {
+      const { data, error } = await client
+        .from('bookshelf_items')
+        .update({ spine_color: color })
+        .eq('book_id', bookId)
+        .eq('spine_color_customized', false)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      return data !== null;
+    },
     async addDecoration(kind) {
-      const { data, error: listError } = await client.from('bookshelf_items').select('position_y').order('position_y', { ascending: false }).limit(1);
-      if (listError) throw listError;
-      const lastY = Array.isArray(data) && data.length > 0 ? numberValue(asRecord(data[0]).position_y) : null;
-      const { error } = await client.from('bookshelf_items').insert({
-        item_type: 'decoration',
-        decoration_kind: kind,
-        position_x: 0.04,
-        position_y: lastY === null ? 32 : lastY + 270,
-      });
+      const { error } = await client.rpc('add_bookshelf_decoration', { p_decoration_kind: kind });
       if (error) throw error;
     },
     async moveDecoration(id, x, y) {

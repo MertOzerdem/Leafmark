@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 
 import { journalColors as colors } from '../../theme/colors';
-import { annualFinishedStats, buildCalendarDays, daysInCalendarMonth, type CalendarDay } from '../../reading/calendarViewModel';
+import { aggregateCalendarTotalsByDate, annualFinishedStats, buildCalendarDays, daysInCalendarMonth, type CalendarDay } from '../../reading/calendarViewModel';
 import type {
   ReadingCategory,
   ReadingConfiguration,
@@ -19,6 +19,7 @@ import type {
   ReadingRepository,
   ReadingSnapshot,
 } from '../../reading/readingTypes';
+import { isValidStarRating } from '../../reading/readingTypes';
 import { isValidReadingDate, padDatePart, todayDate } from '../../reading/readingDates';
 
 interface ReadingTrackerScreenProps {
@@ -236,8 +237,8 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
       setMessage('Finish date must be a valid date on or after the book start date.');
       return;
     }
-    if (finishRating === null) {
-      setMessage('Choose a rating from 0.5 to 5 stars.');
+    if (!isValidStarRating(finishRating)) {
+      setMessage('Choose a rating from 1 to 5 stars.');
       return;
     }
 
@@ -485,7 +486,7 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
                 />
                 <Text style={styles.fieldLabel}>Rating · choose half-star increments</Text>
                 <View style={styles.buttonRow}>
-                  {Array.from({ length: 10 }, (_, index) => (index + 1) / 2).map((rating) => (
+                  {Array.from({ length: 9 }, (_, index) => (index + 2) / 2).map((rating) => (
                     <Pressable
                       key={rating}
                       accessibilityRole="button"
@@ -692,7 +693,9 @@ function MonthDetailCalendar({
             ...day.starts.map((attempt) => `started ${attempt.bookTitle}`),
             ...day.finishes.map((attempt) => `finished ${attempt.bookTitle}`),
           ];
-          const totalLabel = day.logs.map((log) => `${log.bookTitle} ${log.amount} ${log.measure}`).join(', ');
+          const bookLogLabel = day.logs.map((log) => `${log.bookTitle} ${log.amount} ${log.measure}`).join(', ');
+          const dailyTotalLabel = day.totals.map((total) => `${total.total} ${total.measure}`).join(', ');
+          const totalLabel = [bookLogLabel, dailyTotalLabel].filter(Boolean).join(', ');
           return (
             <Pressable
               key={day.date}
@@ -702,7 +705,7 @@ function MonthDetailCalendar({
               style={[styles.monthDayCell, day.color ? { backgroundColor: day.color } : styles.monthDayEmpty]}
             >
               <Text style={styles.monthDayNumber}>{Number(day.date.slice(8, 10))}</Text>
-              {day.total > 0 ? <Text numberOfLines={1} style={styles.monthDayTotal}>{day.total} {day.measure === 'minutes' ? 'm' : day.measure === 'pages' ? 'p' : 'ch'}</Text> : null}
+              {day.total > 0 ? <Text numberOfLines={1} style={styles.monthDayTotal}>{day.total} {day.measure === 'minutes' ? 'm' : day.measure === 'pages' ? 'p' : 'ch'}{day.totals.length > 1 ? '+' : ''}</Text> : null}
               {eventLabel.length > 0 ? <Text style={styles.eventSymbols}>{day.starts.length ? '✦' : ''}{day.finishes.length ? '♛' : ''}</Text> : null}
             </Pressable>
           );
@@ -719,6 +722,9 @@ function CalendarDayDetail({ day, onClose, onEditLog }: { day: CalendarDay; onCl
         <Text style={styles.sectionTitle}>{day.date}</Text>
         <Pressable accessibilityRole="button" onPress={onClose} style={styles.smallAction}><Text style={styles.secondaryButtonText}>Close</Text></Pressable>
       </View>
+      {day.totals.map((total) => (
+        <Text key={total.configurationId} style={styles.calendarEvent}>Day total · {total.total} {total.measure}</Text>
+      ))}
       {day.logs.length === 0 ? <Text style={styles.helpText}>No Reading total for this day.</Text> : day.logs.map((log) => (
         <View key={log.id} style={styles.logRow}>
           <Text style={styles.logText}>{log.bookTitle} · {log.amount} {log.measure}</Text>
@@ -741,7 +747,7 @@ function AnnualReadingGrid({
   onSelectDate(date: string): void;
   onSelectMonth(month: number): void;
   attempts: ReadingSnapshot['attempts'];
-  totals: Map<string, { amount: number; measure: ReadingMeasure; categoryLabel: string; color: string }>;
+  totals: Map<string, { amount: number; measure: ReadingMeasure; categoryLabel: string; color: string; additionalTotalCount: number }>;
   year: number;
 }) {
   return (
@@ -766,7 +772,7 @@ function AnnualReadingGrid({
               const starts = isValidDay ? attempts.some((attempt) => attempt.startedOn === date) : false;
               const finishes = isValidDay ? attempts.some((attempt) => attempt.finishedOn === date) : false;
               const label = activity
-                ? `${month} ${day}: ${activity.amount} ${activity.measure}, category ${activity.categoryLabel}${starts ? ', book started' : ''}${finishes ? ', book finished' : ''}`
+                ? `${month} ${day}: ${activity.amount} ${activity.measure}, category ${activity.categoryLabel}${activity.additionalTotalCount > 0 ? `, ${activity.additionalTotalCount} other total${activity.additionalTotalCount === 1 ? '' : 's'} from an earlier baseline` : ''}${starts ? ', book started' : ''}${finishes ? ', book finished' : ''}`
                 : `${month} ${day}: no reading total${starts ? ', book started' : ''}${finishes ? ', book finished' : ''}`;
               return (
                 <Pressable
@@ -779,6 +785,7 @@ function AnnualReadingGrid({
                 >
                   <View style={styles.annualDayCell}>
                     <Text style={[styles.calendarHeart, activity && { color: activity.color }]}>{activity ? '♥' : '♡'}</Text>
+                    {activity && activity.additionalTotalCount > 0 ? <Text style={styles.additionalTotals}>+</Text> : null}
                     {starts || finishes ? <Text style={styles.annualEventSymbol}>{finishes ? '♛' : '✦'}</Text> : null}
                   </View>
                 </Pressable>
@@ -830,28 +837,24 @@ function aggregateLogsByDate(
   configurations: ReadingConfiguration[],
   draft: ReadingConfigurationDraft,
 ) {
-  const grouped = new Map<string, { amount: number; configurationId: string; measure: ReadingMeasure }>();
-  for (const log of logs) {
-    const current = grouped.get(log.date);
-    grouped.set(log.date, {
-      amount: (current?.amount ?? 0) + log.amount,
-      configurationId: current?.configurationId ?? log.configurationId,
-      measure: current?.measure ?? log.measure,
-    });
-  }
-
-  const totals = new Map<string, { amount: number; measure: ReadingMeasure; categoryLabel: string; color: string }>();
-  for (const [date, total] of grouped) {
-    const configuration = configurations.find((entry) => entry.id === total.configurationId) ??
-      (draft.id === total.configurationId ? draft : null);
+  const configurationsForLogs = draft.id && !configurations.some((entry) => entry.id === draft.id)
+    ? [...configurations, draft as ReadingConfiguration]
+    : configurations;
+  const groupedTotals = aggregateCalendarTotalsByDate(logs, configurationsForLogs);
+  const totals = new Map<string, { amount: number; measure: ReadingMeasure; categoryLabel: string; color: string; additionalTotalCount: number }>();
+  for (const [date, dayTotals] of groupedTotals) {
+    const total = dayTotals.at(-1);
+    if (!total || total.color === null) continue;
+    const configuration = configurationsForLogs.find((entry) => entry.id === total.configurationId);
     if (!configuration) continue;
-    const category = findCategory(configuration.categories, total.amount);
+    const category = findCategory(configuration.categories, total.total);
     if (!category) continue;
     totals.set(date, {
-      amount: total.amount,
+      amount: total.total,
       measure: total.measure,
       categoryLabel: formatCategory(category, configuration.measure),
       color: category.color,
+      additionalTotalCount: dayTotals.length - 1,
     });
   }
   return totals;
@@ -966,6 +969,7 @@ const styles = StyleSheet.create({
   calendarHeart: { color: '#D6D1C2', fontSize: 13, lineHeight: 16 },
   annualDayCell: { alignItems: 'center', flexDirection: 'row' },
   annualEventSymbol: { color: colors.ink, fontSize: 6, marginLeft: -4 },
+  additionalTotals: { color: colors.ink, fontSize: 8, marginLeft: -5 },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 14 },
   legendItem: { alignItems: 'center', flexDirection: 'row', gap: 4 },
   legendSwatch: { borderColor: colors.line, borderRadius: 5, borderWidth: StyleSheet.hairlineWidth, height: 11, width: 11 },

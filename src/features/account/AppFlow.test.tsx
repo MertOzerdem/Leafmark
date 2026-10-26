@@ -1,5 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+
+jest.mock('react-native-image-colors', () => ({
+  getColors: jest.fn().mockResolvedValue({ platform: 'ios', primary: '#AF633A', background: '#F5F0DF', secondary: '#677744' }),
+}));
 
 import { AppFlow } from './AppFlow';
 import type { AuthIdentity, AuthActions, AuthSession, ReaderProfileRepository } from '../../auth/contracts';
@@ -16,7 +21,7 @@ import type {
   ReadingRepository,
 } from '../../reading/readingTypes';
 
-function TestApp({ initialIdentity = null, seedGardenInTbr = false }: { initialIdentity?: AuthIdentity | null; seedGardenInTbr?: boolean }) {
+function TestApp({ initialIdentity = null, seedGardenInTbr = false, seedGardenCover = false }: { initialIdentity?: AuthIdentity | null; seedGardenInTbr?: boolean; seedGardenCover?: boolean }) {
   const [identity, setIdentity] = useState<AuthIdentity | null>(initialIdentity);
   const [isLoaded, setIsLoaded] = useState(true);
 
@@ -73,7 +78,7 @@ function TestApp({ initialIdentity = null, seedGardenInTbr = false }: { initialI
     [],
   );
 
-  const bookStore = useMemo(() => createTestBookStore(seedGardenInTbr), [seedGardenInTbr]);
+  const bookStore = useMemo(() => createTestBookStore(seedGardenInTbr, seedGardenCover), [seedGardenCover, seedGardenInTbr]);
   const tbr = useMemo<TbrRepository>(() => createTestTbrRepository(bookStore), [bookStore]);
   const reading = useMemo<ReadingRepository>(() => createTestReadingRepository(bookStore), [bookStore]);
   const bookPages = useMemo<BookPageRepository>(() => createTestBookPageRepository(bookStore), [bookStore]);
@@ -87,6 +92,7 @@ function TestApp({ initialIdentity = null, seedGardenInTbr = false }: { initialI
 interface TestBookStore {
   books: Book[];
   tbrBookIds: string[];
+  categoryColors: Record<string, string>;
   shelfBookIds: string[];
   decorations: BookshelfDecoration[];
   orientations: Record<string, ShelfOrientation>;
@@ -95,7 +101,7 @@ interface TestBookStore {
   positions: Record<string, { x: number; y: number }>;
 }
 
-function createTestBookStore(seedGardenInTbr: boolean): TestBookStore {
+function createTestBookStore(seedGardenInTbr: boolean, seedGardenCover: boolean): TestBookStore {
   return {
     books: [
     {
@@ -103,7 +109,7 @@ function createTestBookStore(seedGardenInTbr: boolean): TestBookStore {
       googleVolumeId: 'garden-volume',
       title: 'A Garden of Stories',
       authors: ['A. Reader'],
-      coverUrl: null,
+      coverUrl: seedGardenCover ? 'https://books.example/garden-cover.jpg' : null,
       categories: ['Fiction'],
       pageCount: 384,
       description: null,
@@ -120,6 +126,7 @@ function createTestBookStore(seedGardenInTbr: boolean): TestBookStore {
     },
     ],
     tbrBookIds: seedGardenInTbr ? ['garden'] : [],
+    categoryColors: {},
     shelfBookIds: [],
     decorations: [],
     orientations: {},
@@ -333,6 +340,11 @@ function createTestBookshelfRepository(bookStore: TestBookStore): BookshelfRepos
     async moveBook(bookId, x, y) { if (!bookStore.shelfBookIds.includes(bookId)) throw new Error('Book not found'); bookStore.positions[bookId] = { x, y }; },
     async setOrientation(bookId, orientation) { bookStore.orientations[bookId] = orientation; },
     async setSpineColor(bookId, color) { bookStore.spineColors[bookId] = color; bookStore.customizedSpineColors[bookId] = true; },
+    async setDefaultSpineColor(bookId, color) {
+      if (bookStore.customizedSpineColors[bookId]) return false;
+      bookStore.spineColors[bookId] = color;
+      return true;
+    },
     async addDecoration(kind) { bookStore.decorations.push({ id: `decoration-${nextId++}`, kind, x: 0.04, y: bookStore.decorations.length === 0 && loadBooks().length === 0 ? 32 : 32 + (loadBooks().length + bookStore.decorations.length) * 270 }); },
     async moveDecoration(id, x, y) { bookStore.decorations = bookStore.decorations.map((item) => item.id === id ? { ...item, x, y } : item); },
     async removeDecoration(id) { bookStore.decorations = bookStore.decorations.filter((item) => item.id !== id); },
@@ -349,6 +361,12 @@ function createTestTbrRepository(bookStore: TestBookStore): TbrRepository {
   return {
     async list() {
       return listBooks();
+    },
+    async listCategoryColors() {
+      return { ...bookStore.categoryColors };
+    },
+    async setCategoryColor(category, color) {
+      bookStore.categoryColors[category.trim().toLowerCase()] = color;
     },
     async add(draft) {
       const book: Book = { ...draft, id: `book-${nextId++}` };
@@ -423,6 +441,8 @@ describe('private account app flow', () => {
       const catalog: BookCatalog = { search: jest.fn() };
       const tbr: TbrRepository = {
         list: jest.fn(),
+        listCategoryColors: jest.fn(),
+        setCategoryColor: jest.fn(),
         add: jest.fn(),
         update: jest.fn(),
         remove: jest.fn(),
@@ -459,6 +479,7 @@ describe('private account app flow', () => {
         moveBook: jest.fn(),
         setOrientation: jest.fn(),
         setSpineColor: jest.fn(),
+        setDefaultSpineColor: jest.fn(),
         addDecoration: jest.fn(),
         moveDecoration: jest.fn(),
         removeDecoration: jest.fn(),
@@ -520,6 +541,39 @@ describe('private account app flow', () => {
     expect(screen.getByText('Map of Quiet Stars · 2027-01-04 · 25 pages')).toBeTruthy();
   });
 
+  it('keeps same-day totals separate when the reader starts a new measure baseline', async () => {
+    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-baseline', username: 'reader-baseline' }} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Set reading measure to Pages' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save reading settings' }));
+    await waitFor(() => expect(screen.getByText('Pages · starting 2027-01-01')).toBeTruthy());
+
+    await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-03');
+    await fireEvent.press(screen.getByRole('button', { name: 'Start A Garden of Stories' }));
+    await fireEvent.changeText(screen.getByLabelText('Reading date'), '2027-01-03');
+    await fireEvent.changeText(screen.getByLabelText('Pages read'), '25');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save daily total' }));
+
+    await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-03');
+    await fireEvent.press(screen.getByRole('button', { name: 'Start Map of Quiet Stars' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Set reading measure to Minutes' }));
+    await fireEvent.changeText(screen.getByLabelText('Reading baseline starts on'), '2027-01-03');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save reading settings' }));
+    await waitFor(() => expect(screen.getByText('Minutes · starting 2027-01-03')).toBeTruthy());
+    await fireEvent.changeText(screen.getByLabelText('Reading date'), '2027-01-03');
+    await fireEvent.changeText(screen.getByLabelText('Minutes read'), '30');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save daily total' }));
+
+    const annualDay = screen.getByRole('button', { name: /January 3: 30 minutes, category 11–30 minutes, 1 other total/ });
+    expect(annualDay).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Open January 2027' }));
+    const monthDay = screen.getByRole('button', { name: /2027-01-03, A Garden of Stories 25 pages, Map of Quiet Stars 30 minutes/ });
+    expect(monthDay).toBeTruthy();
+    await fireEvent.press(monthDay);
+    expect(screen.getByText('Day total · 25 pages')).toBeTruthy();
+    expect(screen.getByText('Day total · 30 minutes')).toBeTruthy();
+  });
+
   it('finishes a Book, removes it from TBR, and records a reread on the same Book page', async () => {
     await render(<TestApp initialIdentity={{ subject: 'clerk:reader-rose', username: 'reader-rose' }} seedGardenInTbr />);
 
@@ -529,6 +583,10 @@ describe('private account app flow', () => {
     await waitFor(() => expect(screen.getByText('Current book: A Garden of Stories')).toBeTruthy());
     await fireEvent.press(screen.getByRole('button', { name: 'Finish current book' }));
     await fireEvent.changeText(screen.getByLabelText('Finish date'), '2027-01-12');
+    expect(screen.queryByRole('button', { name: 'Rate 0.5 stars' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Rate 1 stars' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Rate 1.5 stars' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Rate 5 stars' })).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Rate 4.5 stars' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Finish book' }));
 
@@ -619,6 +677,9 @@ describe('private account app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Save Illustration' }));
     await waitFor(() => expect(screen.getAllByLabelText('Illustration').length).toBeGreaterThan(1));
     await fireEvent.changeText(screen.getByLabelText('Finish date for 2027-01-02'), '2027-01-13');
+    expect(screen.queryByRole('button', { name: 'Edit rating 0.5 stars for 2027-01-02' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit rating 1 stars for 2027-01-02' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit rating 1.5 stars for 2027-01-02' })).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Edit rating 4 stars for 2027-01-02' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save finish details for 2027-01-02' }));
     await waitFor(() => expect(screen.getByText('2027-01-02 → 2027-01-13 · 4 stars')).toBeTruthy());
@@ -634,7 +695,7 @@ describe('private account app flow', () => {
   });
 
   it('uses the bookshelf as home and saves automatic placement, orientation, colors, and decorations', async () => {
-    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-shelf', username: 'reader-shelf' }} seedGardenInTbr />);
+    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-shelf', username: 'reader-shelf' }} seedGardenInTbr seedGardenCover />);
     expect(screen.getByTestId('digital-bookshelf')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
     await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-02');
@@ -646,6 +707,7 @@ describe('private account app flow', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Open My Bookshelf' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Shelf item A Garden of Stories' })).toBeTruthy());
+    await waitFor(() => expect(StyleSheet.flatten(screen.getByTestId('book-spine-garden').props.style).backgroundColor).toBe('#AF633A'));
     await fireEvent(screen.getByRole('button', { name: 'Shelf item A Garden of Stories' }), 'accessibilityTap');
     await fireEvent.press(screen.getByRole('button', { name: 'Tilted' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Set A Garden of Stories spine color to #66798A' }));
@@ -679,6 +741,12 @@ describe('private account app flow', () => {
     });
     expect(screen.getByLabelText('TBR marker: Fiction')).toBeTruthy();
     expect(screen.getByTestId('tbr-list')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Edit color for Fiction' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Set Fiction color to #D59AAA' }));
+    await waitFor(() => expect(StyleSheet.flatten(screen.getByLabelText('TBR marker: Fiction').props.style).color).toBe('#D59AAA'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Reading tracker' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Open TBR' }));
+    await waitFor(() => expect(StyleSheet.flatten(screen.getByLabelText('TBR marker: Fiction').props.style).color).toBe('#D59AAA'));
 
     await fireEvent.press(screen.getByRole('button', { name: 'Add book manually' }));
     await fireEvent.changeText(screen.getByLabelText('Book title'), 'Map of Quiet Stars');

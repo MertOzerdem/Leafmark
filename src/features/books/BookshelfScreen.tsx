@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { getColors } from 'react-native-image-colors';
 
 import type { BookshelfBook, BookshelfDecoration, BookshelfRepository, ShelfOrientation } from '../../books/bookshelfTypes';
+import { prominentCoverColor, textColorOnSpine } from '../../books/coverColor';
 import { journalColors as colors } from '../../theme/colors';
 
 interface BookshelfScreenProps {
@@ -20,6 +22,30 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
   const [selectedDecorationId, setSelectedDecorationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const colorLookups = useRef(new Set<string>());
+
+  const deriveSpineColors = useCallback((shelfBooks: BookshelfBook[]) => {
+    for (const item of shelfBooks) {
+      const coverUrl = item.book.coverUrl;
+      if (!coverUrl || item.isColorCustomized) continue;
+      const lookupKey = `${item.book.id}:${coverUrl}`;
+      if (colorLookups.current.has(lookupKey)) continue;
+      colorLookups.current.add(lookupKey);
+
+      void getColors(coverUrl, { fallback: item.spineColor, cache: true, key: lookupKey })
+        .then(async (palette) => {
+          const color = prominentCoverColor(palette);
+          if (!color || color.toLowerCase() === item.spineColor.toLowerCase()) return;
+          const saved = await repository.setDefaultSpineColor(item.book.id, color);
+          if (saved) {
+            setBooks((current) => current.map((entry) => entry.book.id === item.book.id && !entry.isColorCustomized
+              ? { ...entry, spineColor: color }
+              : entry));
+          }
+        })
+        .catch(() => { colorLookups.current.delete(lookupKey); });
+    }
+  }, [repository]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -27,13 +53,14 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
       const shelf = await repository.load();
       setBooks(shelf.books);
       setDecorations(shelf.decorations);
+      deriveSpineColors(shelf.books);
       setError(null);
     } catch {
       setError('Your digital bookshelf could not be loaded. Try again.');
     } finally {
       setLoading(false);
     }
-  }, [repository]);
+  }, [deriveSpineColors, repository]);
 
   useEffect(() => { void load(); }, [load, refreshToken]);
 
@@ -55,7 +82,7 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
     if (!selectedBook) return;
     try {
       await repository.setSpineColor(selectedBook.book.id, color);
-      setBooks((current) => current.map((item) => item.book.id === selectedBook.book.id ? { ...item, spineColor: color } : item));
+      setBooks((current) => current.map((item) => item.book.id === selectedBook.book.id ? { ...item, spineColor: color, isColorCustomized: true } : item));
     } catch {
       setError('The book color could not be saved.');
     }
@@ -102,7 +129,7 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
           </View>
           <Text style={styles.selectionLabel}>Spine color</Text>
           <View style={styles.toolbar}>
-            {spinePalette.map((color) => <Pressable key={color} accessibilityRole="button" accessibilityLabel={`Set ${selectedBook.book.title} spine color to ${color}`} onPress={() => void changeColor(color)} style={[styles.colorSwatch, { backgroundColor: color }, selectedBook.spineColor.toLowerCase() === color.toLowerCase() && styles.selectedSwatch]} />)}
+            {[...new Set([selectedBook.spineColor, ...spinePalette])].map((color) => <Pressable key={color} accessibilityRole="button" accessibilityLabel={`Set ${selectedBook.book.title} spine color to ${color}`} onPress={() => void changeColor(color)} style={[styles.colorSwatch, { backgroundColor: color }, selectedBook.spineColor.toLowerCase() === color.toLowerCase() && styles.selectedSwatch]} />)}
           </View>
         </View>
       ) : selectedDecoration ? (
@@ -158,10 +185,8 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
 function BookSpine({ book }: { book: BookshelfBook }) {
   const width = Math.max(36, Math.min(72, (book.book.pageCount ?? 300) * 0.095));
   return (
-    <View style={[styles.bookSpine, { backgroundColor: book.spineColor, width }, orientationStyle(book.orientation)]}>
-      {book.book.coverUrl && !book.isColorCustomized ? <Image source={{ uri: book.book.coverUrl }} resizeMode="cover" style={styles.spineCover} /> : null}
-      {!book.isColorCustomized && book.book.coverUrl ? <View style={styles.coverWash} /> : null}
-      <Text numberOfLines={4} style={[styles.spineTitle, book.orientation === 'horizontal' && styles.horizontalTitle]}>{book.book.title}</Text>
+    <View testID={`book-spine-${book.book.id}`} style={[styles.bookSpine, { backgroundColor: book.spineColor, width }, orientationStyle(book.orientation)]}>
+      <Text numberOfLines={4} style={[styles.spineTitle, { color: textColorOnSpine(book.spineColor) }, book.orientation === 'horizontal' && styles.horizontalTitle]}>{book.book.title}</Text>
       <View style={styles.spineMark}><Text style={styles.spineMarkText}>{book.book.pageCount ?? '·'}</Text></View>
     </View>
   );
@@ -266,8 +291,6 @@ const styles = StyleSheet.create({
   draggable: { alignItems: 'center', justifyContent: 'flex-end', position: 'absolute', zIndex: 2 },
   selectedItem: { borderColor: colors.olive, borderRadius: 6, borderWidth: 2, padding: 2 },
   bookSpine: { alignItems: 'center', borderColor: '#5A5746', borderRadius: 5, borderWidth: 1, height: 204, justifyContent: 'center', overflow: 'hidden', padding: 4 },
-  spineCover: { height: '100%', opacity: 0.9, position: 'absolute', width: '100%' },
-  coverWash: { backgroundColor: '#F7F5EB16', height: '100%', position: 'absolute', width: '100%' },
   spineTitle: { color: '#FFFCF2', fontFamily: 'Georgia', fontSize: 13, fontWeight: '700', textAlign: 'center', textShadowColor: '#3C392E', textShadowRadius: 3 },
   horizontalTitle: { fontSize: 12 },
   spineMark: { backgroundColor: '#FFFCF2AA', borderRadius: 8, bottom: 4, paddingHorizontal: 4, position: 'absolute' },

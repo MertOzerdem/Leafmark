@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 
 import type { Book, BookDraft } from '../../books/bookTypes';
 import type { BookPageField, BookPageFieldType, BookPageRepository, BookPageFieldValue } from '../../books/bookPageTypes';
+import { isValidStarRating } from '../../reading/readingTypes';
 import type { ReadBook, ReadingAttempt, ReadingRepository } from '../../reading/readingTypes';
 import { todayDate, isValidReadingDate } from '../../reading/readingDates';
 import { journalColors as colors } from '../../theme/colors';
@@ -181,8 +182,8 @@ export function BookPage({ onBack, onReadingChanged, ownerSubject, pages, readBo
   }
 
   async function saveAttemptFinish(attempt: ReadingAttempt, date: string, rating: number | null) {
-    if (!isValidReadingDate(date) || date < attempt.startedOn || rating === null) {
-      setMessage('Choose a valid finish date and a rating from 0.5 to 5 stars.');
+    if (!isValidReadingDate(date) || date < attempt.startedOn || !isValidStarRating(rating)) {
+      setMessage('Choose a valid finish date and a rating from 1 to 5 stars.');
       return;
     }
     try {
@@ -363,7 +364,7 @@ function AttemptDetails({
           <TextInput accessibilityLabel={`Finish date for ${attempt.startedOn}`} keyboardType="numbers-and-punctuation" onChangeText={setFinishedOn} style={styles.input} value={finishedOn} />
           <Text style={styles.fieldLabel}>Rating · half stars</Text>
           <View style={styles.buttonRow}>
-            {Array.from({ length: 10 }, (_, index) => (index + 1) / 2).map((value) => (
+            {Array.from({ length: 9 }, (_, index) => (index + 2) / 2).map((value) => (
               <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Edit rating ${value} stars for ${attempt.startedOn}`} accessibilityState={{ selected: rating === value }} onPress={() => setRating(value)} style={[styles.typeButton, rating === value && styles.selectedType]}>
                 <Text style={styles.secondaryButtonText}>{value}</Text>
               </Pressable>

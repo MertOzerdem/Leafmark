@@ -68,8 +68,8 @@ begin
   if p_finished_on is null or p_finished_on < attempt.started_on then
     raise exception 'A finish date must be on or after the Reading attempt start date.' using errcode = '22023';
   end if;
-  if p_rating is null or p_rating < 0.5 or p_rating > 5 or p_rating * 2 <> trunc(p_rating * 2) then
-    raise exception 'Choose a rating from 0.5 to 5 stars in half-star increments.' using errcode = '22023';
+  if p_rating is null or p_rating < 1 or p_rating > 5 or p_rating * 2 <> trunc(p_rating * 2) then
+    raise exception 'Choose a rating from 1 to 5 stars in half-star increments.' using errcode = '22023';
   end if;
   if exists (
     select 1 from public.reading_logs

@@ -2,6 +2,10 @@ import type { Book } from '../books/bookTypes';
 
 export type ReadingMeasure = 'minutes' | 'pages' | 'chapters';
 
+export function isValidStarRating(rating: number | null): rating is number {
+  return rating !== null && Number.isFinite(rating) && rating >= 1 && rating <= 5 && Number.isInteger(rating * 2);
+}
+
 export interface ReadingCategory {
   position: number;
   minimum: number;

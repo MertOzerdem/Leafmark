@@ -12,6 +12,14 @@ const booksMigration = await readFile(
   new URL('../../supabase/migrations/20261026000200_create_books_and_tbr.sql', import.meta.url),
   'utf8',
 );
+const bookDeduplicationMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000800_deduplicate_book_titles.sql', import.meta.url),
+  'utf8',
+);
+const tbrCategoryColorMigration = await readFile(
+  new URL('../../supabase/migrations/20261026001000_tbr_category_colors.sql', import.meta.url),
+  'utf8',
+);
 
 async function createDatabase() {
   const database = new PGlite();
@@ -29,6 +37,8 @@ async function createDatabase() {
   `);
   await database.exec(profileMigration);
   await database.exec(booksMigration);
+  await database.exec(bookDeduplicationMigration);
+  await database.exec(tbrCategoryColorMigration);
   return database;
 }
 
@@ -141,6 +151,49 @@ test('reader-owned Books and ordered TBR entries stay private', async (t) => {
       );
     });
 
+    await t.test('manual and catalog entries with the same title and author keep one editable Book page', async () => {
+      const result = await asReader(database, 'clerk_reader_a', async () => {
+        const manual = await database.query(
+          "select * from public.add_book_to_tbr(null, 'Pride & Prejudice', array[]::text[], 'https://books.example/my-cover.jpg', array['My category'], 280, 'My saved description')",
+        );
+        await database.query('delete from public.tbr_entries where book_id = $1', [manual.rows[0].id]);
+        const catalogMatch = await database.query(
+          "select * from public.add_book_to_tbr('google-pride', 'pride prejudice', array['Jane Austen'], 'https://books.example/catalog-cover.jpg', array['Classic'], 320, 'Catalog summary')",
+        );
+        const sameAuthorDifferentVolume = await database.query(
+          "select * from public.add_book_to_tbr('google-pride-other-edition', 'Pride: Prejudice', array['JANE AUSTEN'], null, array[]::text[], null, null)",
+        );
+        const differentAuthor = await database.query(
+          "select * from public.add_book_to_tbr('google-other-author', 'Pride Prejudice', array['Different Author'], null, array[]::text[], null, null)",
+        );
+        const books = await database.query('select id, title, authors, cover_url, page_count, description from public.books');
+        const tbr = await database.query('select book_id from public.tbr_entries order by position');
+        return { manual: manual.rows[0], catalogMatch: catalogMatch.rows[0], sameAuthorDifferentVolume: sameAuthorDifferentVolume.rows[0], differentAuthor: differentAuthor.rows[0], books, tbr };
+      });
+
+      assert.equal(result.catalogMatch.id, result.manual.id);
+      assert.equal(result.sameAuthorDifferentVolume.id, result.manual.id);
+      assert.notEqual(result.differentAuthor.id, result.manual.id);
+      assert.equal(result.books.rows.length, 2);
+      assert.deepEqual(result.books.rows.find((book) => book.id === result.manual.id), {
+        id: result.manual.id,
+        title: 'Pride & Prejudice',
+        authors: ['Jane Austen'],
+        cover_url: 'https://books.example/my-cover.jpg',
+        page_count: 280,
+        description: 'My saved description',
+      });
+      assert.deepEqual(result.books.rows.find((book) => book.id === result.differentAuthor.id), {
+        id: result.differentAuthor.id,
+        title: 'Pride Prejudice',
+        authors: ['Different Author'],
+        cover_url: null,
+        page_count: null,
+        description: null,
+      });
+      assert.deepEqual(result.tbr.rows, [{ book_id: result.manual.id }, { book_id: result.differentAuthor.id }]);
+    });
+
     await t.test('anonymous clients cannot access private Books or the TBR API', async () => {
       await assert.rejects(
         asReader(database, 'anonymous', () => database.query('select * from public.books'), 'anon'),
@@ -150,6 +203,39 @@ test('reader-owned Books and ordered TBR entries stay private', async (t) => {
         asReader(database, 'anonymous', () =>
           database.query("select * from public.add_book_to_tbr(null, 'No access', array[]::text[], null, array[]::text[], null, null)"),
         'anon'),
+        (error) => error.code === '42501',
+      );
+    });
+
+    await t.test('TBR category colors persist privately for each reader', async () => {
+      const inserted = await asReader(database, 'clerk_reader_a', () => database.query(
+        "insert into public.tbr_category_colors (category_name, color) values ('romance', '#D59AAA') returning user_id",
+      ));
+      assert.deepEqual(inserted.rows, [{ user_id: 'clerk_reader_a' }]);
+      await database.query(
+        "insert into public.tbr_category_colors (user_id, category_name, color) values ('clerk_reader_a', 'romance', '#D59AAA')",
+      );
+      const readerAColors = await asReader(database, 'clerk_reader_a', () =>
+        database.query('select category_name, color from public.tbr_category_colors'),
+      );
+      const readerBColors = await asReader(database, 'clerk_reader_b', () =>
+        database.query('select category_name, color from public.tbr_category_colors'),
+      );
+      const readerBCannotChangeReaderA = await asReader(database, 'clerk_reader_b', () =>
+        database.query("update public.tbr_category_colors set color = '#123456' where category_name = 'romance' returning color"),
+      );
+
+      assert.deepEqual(readerAColors.rows, [{ category_name: 'romance', color: '#D59AAA' }]);
+      assert.deepEqual(readerBColors.rows, []);
+      assert.deepEqual(readerBCannotChangeReaderA.rows, []);
+      await assert.rejects(
+        asReader(database, 'clerk_reader_a', () => database.query(
+          "insert into public.tbr_category_colors (user_id, category_name, color) values ('clerk_reader_b', 'fantasy', '#8190A4')",
+        )),
+        (error) => error.code === '42501',
+      );
+      await assert.rejects(
+        asReader(database, 'anonymous', () => database.query('select * from public.tbr_category_colors'), 'anon'),
         (error) => error.code === '42501',
       );
     });

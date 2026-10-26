@@ -27,6 +27,27 @@ describe('reading calendar view model', () => {
     expect(january[4].finishes.map((attempt) => attempt.bookTitle)).toEqual(['A']);
   });
 
+  it('keeps totals from different measure baselines separate on one date', () => {
+    const minutesConfiguration: ReadingConfiguration = {
+      id: 'minutes',
+      measure: 'minutes',
+      startsOn: '2027-01-05',
+      categories: [{ position: 0, minimum: 1, maximum: null, color: '#456789' }],
+    };
+    const logs: ReadingLog[] = [
+      { id: 'pages-a', attemptId: 'first', bookId: 'book-a', bookTitle: 'A', configurationId: 'pages', date: '2027-01-05', amount: 15, measure: 'pages', categoryPosition: 0 },
+      { id: 'minutes-a', attemptId: 'other', bookId: 'book-b', bookTitle: 'B', configurationId: 'minutes', date: '2027-01-05', amount: 30, measure: 'minutes', categoryPosition: 0 },
+      { id: 'pages-b', attemptId: 'second', bookId: 'book-a', bookTitle: 'A', configurationId: 'pages', date: '2027-01-05', amount: 10, measure: 'pages', categoryPosition: 0 },
+    ];
+    const day = buildCalendarDays(2027, 1, logs, attempts, [configuration, minutesConfiguration])[4];
+
+    expect(day).toMatchObject({ total: 30, measure: 'minutes', color: '#456789' });
+    expect(day.totals).toEqual([
+      { configurationId: 'pages', total: 25, measure: 'pages', color: '#889977' },
+      { configurationId: 'minutes', total: 30, measure: 'minutes', color: '#456789' },
+    ]);
+  });
+
   it('counts unique Books separately from repeat Reading attempts finished in the year', () => {
     expect(annualFinishedStats(attempts, 2027)).toEqual({ attempts: 2, uniqueBooks: 1, rereads: 1 });
   });

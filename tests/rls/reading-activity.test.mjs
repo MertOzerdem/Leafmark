@@ -32,6 +32,18 @@ const editableAttemptMigration = await readFile(
   new URL('../../supabase/migrations/20261026000700_edit_reading_attempt_history.sql', import.meta.url),
   'utf8',
 );
+const bookDeduplicationMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000800_deduplicate_book_titles.sql', import.meta.url),
+  'utf8',
+);
+const bookshelfPlacementMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000900_prevent_bookshelf_overlap.sql', import.meta.url),
+  'utf8',
+);
+const minRatingMigration = await readFile(
+  new URL('../../supabase/migrations/20261026001100_require_minimum_one_star.sql', import.meta.url),
+  'utf8',
+);
 
 async function createDatabase() {
   const database = new PGlite();
@@ -73,6 +85,9 @@ async function createDatabase() {
   await database.exec(bookPagesAndShelfMigration);
   await database.exec(privateImagesMigration);
   await database.exec(editableAttemptMigration);
+  await database.exec(bookDeduplicationMigration);
+  await database.exec(bookshelfPlacementMigration);
+  await database.exec(minRatingMigration);
   return database;
 }
 
@@ -343,6 +358,51 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
       assert.equal(result.attempts.rows[1].is_current, true);
     });
 
+    await t.test('finished Reading attempts accept half stars from one through five only', async () => {
+      await database.exec('begin; set local role authenticated;');
+      await database.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: 'reader_a', role: 'authenticated' })]);
+      try {
+        const book = await database.query(
+          "insert into public.books (title) values ('Rating boundaries') returning id",
+        );
+        const currentAttempt = await database.query(
+          'select * from public.start_reading_attempt($1, $2)',
+          [book.rows[0].id, '2027-01-01'],
+        );
+
+        await database.exec('savepoint invalid_finish_rating');
+        await assert.rejects(
+          database.query('select * from public.finish_reading_attempt($1, $2, $3)', [currentAttempt.rows[0].id, '2027-01-02', 0.5]),
+          (error) => error.code === '22023',
+        );
+        await database.exec('rollback to savepoint invalid_finish_rating');
+
+        await database.query(
+          'select * from public.finish_reading_attempt($1, $2, $3)',
+          [currentAttempt.rows[0].id, '2027-01-02', 1.5],
+        );
+
+        await database.exec('savepoint invalid_update_rating');
+        await assert.rejects(
+          database.query('select public.update_reading_attempt_finish($1, $2, $3)', [currentAttempt.rows[0].id, '2027-01-02', 0.5]),
+          (error) => error.code === '22023',
+        );
+        await database.exec('rollback to savepoint invalid_update_rating');
+
+        await database.exec('savepoint invalid_insert_rating');
+        await assert.rejects(
+          database.query(
+            "insert into public.reading_attempts (book_id, started_on, finished_on, rating, is_current) values ($1, '2027-01-01', '2027-01-02', 0.5, false)",
+            [book.rows[0].id],
+          ),
+          (error) => error.code === '23514',
+        );
+        await database.exec('rollback to savepoint invalid_insert_rating');
+      } finally {
+        await database.exec('rollback;');
+      }
+    });
+
     await t.test('another reader and anonymous clients cannot access or forge activity', async () => {
       const readerBBook = await database.query(
         "insert into public.books (user_id, title) values ('reader_b', 'Reader B Book') returning id",
@@ -458,6 +518,59 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
       ));
       const remainingImages = await database.query("select name from storage.objects where bucket_id = 'book-page-images'");
       assert.deepEqual(remainingImages.rows, [{ name: `reader_b/${bookB}/illustration/art.jpg` }]);
+    });
+
+    await t.test('finished Books find a free shelf position around moved Books and decorations', async () => {
+      const books = await database.query(
+        "insert into public.books (user_id, title, page_count) values ('reader_shelf', 'New finished Book', 320), ('reader_shelf', 'Moved upright Book', 320), ('reader_shelf', 'Horizontal Book', 700) returning id, title",
+      );
+      const newBookId = books.rows.find((book) => book.title === 'New finished Book').id;
+      const uprightBookId = books.rows.find((book) => book.title === 'Moved upright Book').id;
+      const horizontalBookId = books.rows.find((book) => book.title === 'Horizontal Book').id;
+
+      await database.query(
+        "insert into public.bookshelf_items (user_id, item_type, decoration_kind, position_x, position_y, created_at) values ('reader_shelf', 'decoration', 'plant', 0.04, 32, '2026-10-01T00:00:00Z')",
+      );
+      await database.query(
+        "insert into public.bookshelf_items (user_id, item_type, book_id, position_x, position_y, orientation, created_at) values ('reader_shelf', 'book', $1, 0.32, 32, 'upright', '2026-10-02T00:00:00Z')",
+        [uprightBookId],
+      );
+      await database.query(
+        "insert into public.bookshelf_items (user_id, item_type, book_id, position_x, position_y, orientation, created_at) values ('reader_shelf', 'book', $1, 0.45, 32, 'horizontal', '2026-10-03T00:00:00Z')",
+        [horizontalBookId],
+      );
+
+      await asReaderCommitted(database, 'reader_shelf', async () => {
+        const started = await database.query(
+          'select * from public.start_reading_attempt($1, $2)',
+          [newBookId, '2027-03-01'],
+        );
+        await database.query(
+          'select * from public.finish_reading_attempt($1, $2, $3)',
+          [started.rows[0].id, '2027-03-02', 4],
+        );
+      });
+
+      const placement = await database.query(
+        'select position_x, position_y from public.bookshelf_items where user_id = $1 and book_id = $2',
+        ['reader_shelf', newBookId],
+      );
+      assert.deepEqual(placement.rows, [{ position_x: '0.04000', position_y: '302.00' }]);
+
+      const decoration = await asReaderCommitted(database, 'reader_shelf', () => database.query(
+        "select * from public.add_bookshelf_decoration('frame')",
+      ));
+      assert.equal(decoration.rows[0].item_type, 'decoration');
+      assert.equal(decoration.rows[0].decoration_kind, 'frame');
+      assert.equal(decoration.rows[0].position_y, '572.00');
+
+      await assert.rejects(
+        asReader(database, 'reader_a', () => database.query(
+          'select * from public.find_available_bookshelf_position($1, $2)',
+          ['reader_shelf', 320],
+        )),
+        (error) => error.code === '42501',
+      );
     });
   } finally {
     await database.close();

@@ -24,6 +24,7 @@ export interface BookshelfRepository {
   moveBook(bookId: string, x: number, y: number): Promise<void>;
   setOrientation(bookId: string, orientation: ShelfOrientation): Promise<void>;
   setSpineColor(bookId: string, color: string): Promise<void>;
+  setDefaultSpineColor(bookId: string, color: string): Promise<boolean>;
   addDecoration(kind: ShelfDecorationKind): Promise<void>;
   moveDecoration(id: string, x: number, y: number): Promise<void>;
   removeDecoration(id: string): Promise<void>;

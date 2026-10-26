@@ -22,6 +22,8 @@ export interface BookCatalog {
 
 export interface TbrRepository {
   list(): Promise<TbrBook[]>;
+  listCategoryColors(): Promise<Record<string, string>>;
+  setCategoryColor(category: string, color: string): Promise<void>;
   add(book: BookDraft): Promise<Book>;
   update(bookId: string, book: BookDraft): Promise<Book>;
   remove(bookId: string): Promise<void>;

@@ -86,6 +86,23 @@ describe('Supabase TBR repository', () => {
     expect(query.order).toHaveBeenNthCalledWith(3, 'book_id', { ascending: true });
   });
 
+  it('loads and saves reader-owned TBR category colors', async () => {
+    const query = createQuery({ data: [{ category_name: 'romance', color: '#D59AAA' }], error: null });
+    const from = jest.fn().mockReturnValue(query);
+    const repository = createTbrRepository({ from } as unknown as SupabaseClient);
+
+    await expect(repository.listCategoryColors()).resolves.toEqual({ romance: '#D59AAA' });
+    await repository.setCategoryColor(' Romance ', '#d59aaa');
+
+    expect(from).toHaveBeenCalledWith('tbr_category_colors');
+    expect(query.select).toHaveBeenCalledWith('category_name, color');
+    expect(query.upsert).toHaveBeenCalledWith(
+      { category_name: 'romance', color: '#D59AAA' },
+      { onConflict: 'user_id,category_name' },
+    );
+    expect(query.upsert.mock.calls[0][0]).not.toHaveProperty('user_id');
+  });
+
   it('updates a personal Book record without sending an owner id', async () => {
     const updatedDraft: BookDraft = {
       googleVolumeId: 'google-volume-7',
@@ -151,6 +168,7 @@ function createQuery(result: unknown) {
     select: jest.Mock;
     order: jest.Mock;
     update: jest.Mock;
+    upsert: jest.Mock;
     eq: jest.Mock;
     delete: jest.Mock;
     single: jest.Mock;
@@ -159,6 +177,7 @@ function createQuery(result: unknown) {
   query.select = jest.fn(() => query);
   query.order = jest.fn(() => query);
   query.update = jest.fn(() => query);
+  query.upsert = jest.fn(() => query);
   query.eq = jest.fn(() => query);
   query.delete = jest.fn(() => query);
   query.single = jest.fn().mockResolvedValue(result);

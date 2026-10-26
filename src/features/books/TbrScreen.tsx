@@ -45,9 +45,12 @@ const emptyBook: BookDraft = {
 
 export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }: TbrScreenProps) {
   const [books, setBooks] = useState<TbrBook[]>([]);
+  const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingCategoryColor, setIsSavingCategoryColor] = useState(false);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<BookDraft[]>([]);
   const [searchMessage, setSearchMessage] = useState<string | null>(null);
@@ -57,7 +60,9 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
   const loadBooks = useCallback(async () => {
     setIsLoading(true);
     try {
-      setBooks(await repository.list());
+      const [nextBooks, nextColors] = await Promise.all([repository.list(), repository.listCategoryColors()]);
+      setBooks(nextBooks);
+      setCategoryColors(nextColors);
       setListMessage(null);
     } catch {
       setListMessage('Your To Be Read list could not be loaded. Try again.');
@@ -117,6 +122,19 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
       setBooks((currentBooks) => currentBooks.filter((book) => book.id !== bookId));
     } catch {
       setListMessage('The book could not be removed from TBR. Try again.');
+    }
+  }
+
+  async function changeCategoryColor(category: string, color: string) {
+    setIsSavingCategoryColor(true);
+    setListMessage(null);
+    try {
+      await repository.setCategoryColor(category, color);
+      setCategoryColors((current) => ({ ...current, [categoryKey(category)]: color }));
+    } catch {
+      setListMessage(`The ${category} color could not be saved. Try again.`);
+    } finally {
+      setIsSavingCategoryColor(false);
     }
   }
 
@@ -257,7 +275,7 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
             <View key={book.id} style={styles.tbrEntry}>
               <Text
                 accessibilityLabel={`TBR marker: ${book.categories[0] ?? 'Uncategorized'}`}
-                style={[styles.heartMarker, { color: colorForCategory(book.categories[0] ?? 'Uncategorized') }]}
+                style={[styles.heartMarker, { color: colorForCategory(book.categories[0] ?? 'Uncategorized', categoryColors) }]}
               >
                 ♡
               </Text>
@@ -307,12 +325,37 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
           ))}
           <View accessibilityLabel="Book category color key" style={styles.categoryLegend}>
             {getListCategories(books).map((category) => (
-              <View key={category} style={styles.categoryLegendItem}>
-                <Text style={[styles.legendHeart, { color: colorForCategory(category) }]}>♥</Text>
+              <Pressable
+                key={category}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit color for ${category}`}
+                accessibilityState={{ selected: editingCategory === category }}
+                onPress={() => setEditingCategory((current) => current === category ? null : category)}
+                style={[styles.categoryLegendItem, editingCategory === category && styles.selectedCategoryLegendItem]}
+              >
+                <Text style={[styles.legendHeart, { color: colorForCategory(category, categoryColors) }]}>♥</Text>
                 <Text style={styles.legendLabel}>{category}</Text>
-              </View>
+              </Pressable>
             ))}
           </View>
+          {editingCategory ? (
+            <View style={styles.categoryColorEditor}>
+              <Text style={styles.categoryColorHeading}>Color for {editingCategory}</Text>
+              <View style={styles.categoryColorChoices}>
+                {[...new Set([colorForCategory(editingCategory, categoryColors), ...categoryPalette])].map((color) => (
+                  <Pressable
+                    key={color}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Set ${editingCategory} color to ${color}`}
+                    accessibilityState={{ selected: colorForCategory(editingCategory, categoryColors) === color }}
+                    disabled={isSavingCategoryColor}
+                    onPress={() => void changeCategoryColor(editingCategory, color)}
+                    style={[styles.categoryColorSwatch, { backgroundColor: color }, colorForCategory(editingCategory, categoryColors) === color && styles.selectedCategoryColorSwatch]}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -431,8 +474,14 @@ function getListCategories(books: TbrBook[]): string[] {
   return [...new Set(books.flatMap((book) => book.categories.length ? book.categories : ['Uncategorized']))];
 }
 
-function colorForCategory(category: string): string {
-  const hash = [...category.toLowerCase()].reduce((value, character) => value + character.charCodeAt(0), 0);
+function categoryKey(category: string): string {
+  return category.trim().toLowerCase();
+}
+
+function colorForCategory(category: string, savedColors: Record<string, string>): string {
+  const key = categoryKey(category);
+  if (savedColors[key]) return savedColors[key];
+  const hash = [...key].reduce((value, character) => value + character.charCodeAt(0), 0);
   return categoryPalette[hash % categoryPalette.length];
 }
 
@@ -479,8 +528,14 @@ const styles = StyleSheet.create({
   ruledLine: { borderBottomColor: colors.muted, borderBottomWidth: StyleSheet.hairlineWidth, marginTop: 8 },
   categoryLegend: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 8, paddingTop: 16 },
   categoryLegendItem: { alignItems: 'center', flexDirection: 'row', gap: 4, maxWidth: '100%' },
+  selectedCategoryLegendItem: { backgroundColor: '#F0EDDF', borderRadius: 8, paddingHorizontal: 4 },
   legendHeart: { fontSize: 17, lineHeight: 20 },
   legendLabel: { color: colors.ink, fontSize: 12 },
+  categoryColorEditor: { borderTopColor: colors.line, borderTopWidth: StyleSheet.hairlineWidth, marginBottom: 8, marginTop: 8, paddingTop: 10 },
+  categoryColorHeading: { color: colors.muted, fontSize: 12, marginBottom: 8 },
+  categoryColorChoices: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  categoryColorSwatch: { borderColor: colors.line, borderRadius: 14, borderWidth: 1, height: 28, width: 28 },
+  selectedCategoryColorSwatch: { borderColor: colors.ink, borderWidth: 3 },
   smallButton: { alignItems: 'center', backgroundColor: colors.paper, borderColor: colors.line, borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 44, minWidth: 40, paddingHorizontal: 10 },
   disabledButton: { opacity: 0.48 },
   smallButtonText: { color: colors.ink, fontSize: 12, fontWeight: '600' },

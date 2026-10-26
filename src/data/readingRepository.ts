@@ -10,6 +10,7 @@ import type {
   ReadingRepository,
   ReadingSnapshot,
 } from '../reading/readingTypes';
+import { isValidStarRating } from '../reading/readingTypes';
 import { asRecord, bookColumns, mapBookRecord, nullableNumber, numberValue, stringValue } from './bookMapper';
 
 export function createReadingRepository(client: SupabaseClient): ReadingRepository {
@@ -267,7 +268,7 @@ function nullableString(value: unknown): string | null {
 function nullableRating(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const rating = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
-  if (!Number.isFinite(rating) || rating < 0.5 || rating > 5 || !Number.isInteger(rating * 2)) {
+  if (!isValidStarRating(rating)) {
     throw new Error('The data service returned an invalid Reading rating.');
   }
   return rating;

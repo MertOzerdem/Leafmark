@@ -21,6 +21,29 @@ export function createTbrRepository(client: SupabaseClient): TbrRepository {
         return { ...mapBookRecord(entry.book), position: numberValue(entry.position) };
       });
     },
+    async listCategoryColors() {
+      const { data, error } = await client
+        .from('tbr_category_colors')
+        .select('category_name, color');
+
+      if (error) throw error;
+      if (!Array.isArray(data)) return {};
+
+      return data.reduce<Record<string, string>>((colors, row) => {
+        const entry = asRecord(row);
+        const category = typeof entry.category_name === 'string' ? entry.category_name : '';
+        const color = typeof entry.color === 'string' ? entry.color : '';
+        if (category && color) colors[category] = color;
+        return colors;
+      }, {});
+    },
+    async setCategoryColor(category, color) {
+      const { error } = await client
+        .from('tbr_category_colors')
+        .upsert({ category_name: category.trim().toLowerCase(), color: color.toUpperCase() }, { onConflict: 'user_id,category_name' });
+
+      if (error) throw error;
+    },
     async add(book) {
       const { data, error } = await client
         .rpc('add_book_to_tbr', {
