@@ -27,9 +27,17 @@ test('the iPad Home Screen app opens its cached Leafmark shell offline', async (
   const iconResponse = await page.request.get(new URL(manifest.icons[0].src, page.url()).toString());
   expect(iconResponse.ok()).toBe(true);
   expect(iconResponse.headers()['content-type']).toContain('image/png');
-  expect(await page.locator('link[rel="apple-touch-icon"]').getAttribute('href')).toBe(
-    '/Leafmark/leafmark-icon.png',
+  const touchIcons = await page.locator('link[rel="apple-touch-icon"]').evaluateAll((links) =>
+    links.map((link) => ({
+      href: (link as HTMLLinkElement).getAttribute('href'),
+      sizes: (link as HTMLLinkElement).getAttribute('sizes'),
+    })),
   );
+  expect(touchIcons).toContainEqual({ href: '/Leafmark/apple-touch-icon-167.png', sizes: '167x167' });
+  const ipadTouchIcon = await page.request.get(
+    new URL('/Leafmark/apple-touch-icon-167.png', page.url()).toString(),
+  );
+  expect(ipadTouchIcon.ok()).toBe(true);
   const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
   expect(favicon).toBe('/Leafmark/favicon.ico');
 
