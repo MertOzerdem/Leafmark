@@ -1,6 +1,7 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { JournalAccents } from './src/features/account/JournalAccents';
 
 const colors = {
   paper: '#F7F5EB',
@@ -13,29 +14,33 @@ const colors = {
 
 export default function App() {
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <View style={styles.card}>
-        <Text style={styles.kicker}>LEAFMARK · READING JOURNAL</Text>
-        <Text accessibilityRole="header" style={styles.title}>
-          A reading journal that stays on this iPad.
-        </Text>
-        <Text style={styles.description}>
-          Keep your books, reading days, notes, and digital bookshelf together in a quiet place of your own.
-        </Text>
-        <View style={styles.installNote}>
-          <Text style={styles.installTitle}>Made for your Home Screen</Text>
-          <Text style={styles.installText}>Open Leafmark in Safari, tap Share, then choose Add to Home Screen.</Text>
+    <View style={styles.screen}>
+      <JournalAccents />
+      <ScrollView contentContainerStyle={styles.page}>
+        <View style={styles.card}>
+          <Text style={styles.kicker}>LEAFMARK · READING JOURNAL</Text>
+          <Text accessibilityRole="header" style={styles.title}>
+            A reading journal that stays on this iPad.
+          </Text>
+          <Text style={styles.description}>
+            Keep your books, reading days, notes, and digital bookshelf together in a quiet place of your own.
+          </Text>
+          <View style={styles.installNote}>
+            <Text style={styles.installTitle}>Made for your Home Screen</Text>
+            <Text style={styles.installText}>Open Leafmark in Safari, tap Share, then choose Add to Home Screen.</Text>
+          </View>
+          <Text style={styles.offlineNote}>Connect to the internet for the first visit and app updates.</Text>
+          <Text style={styles.offlineNote}>Your journal opens offline after the first visit.</Text>
+          <Text style={styles.footer}>Your reading journal is stored on this device.</Text>
         </View>
-        <Text style={styles.offlineNote}>Connect to the internet for the first visit and app updates.</Text>
-        <Text style={styles.offlineNote}>Your journal opens offline after the first visit.</Text>
-        <Text style={styles.footer}>Your reading journal is stored on this device.</Text>
-      </View>
+      </ScrollView>
       <StatusBar style="dark" />
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { backgroundColor: colors.paper, flex: 1, position: 'relative' },
   page: {
     alignItems: 'center',
     backgroundColor: colors.paper,
