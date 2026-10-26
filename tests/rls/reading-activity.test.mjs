@@ -16,6 +16,10 @@ const readingMigration = await readFile(
   new URL('../../supabase/migrations/20261026000300_reading_activity.sql', import.meta.url),
   'utf8',
 );
+const finishReadingMigration = await readFile(
+  new URL('../../supabase/migrations/20261026000400_finish_reading_attempts.sql', import.meta.url),
+  'utf8',
+);
 
 async function createDatabase() {
   const database = new PGlite();
@@ -34,6 +38,7 @@ async function createDatabase() {
   await database.exec(profileMigration);
   await database.exec(booksMigration);
   await database.exec(readingMigration);
+  await database.exec(finishReadingMigration);
   return database;
 }
 
@@ -189,6 +194,58 @@ test('reader-owned activity keeps daily totals tied to a category configuration 
       });
 
       assert.deepEqual(result.rows, [{ color: '#123456' }]);
+    });
+
+    await t.test('finishing removes TBR membership and rereading adds an attempt to the same Book', async () => {
+      await database.query(
+        'insert into public.tbr_entries (user_id, book_id, position) values ($1, $2, 0)',
+        ['reader_a', garden.rows[0].id],
+      );
+      const result = await asReader(database, 'reader_a', async () => {
+        const configuration = await database.query(
+          'select * from public.save_reading_configuration(null, $1, $2, $3::jsonb)',
+          ['pages', '2027-01-01', JSON.stringify(categories)],
+        );
+        const firstAttempt = await database.query(
+          'select * from public.start_reading_attempt($1, $2)',
+          [garden.rows[0].id, '2027-01-02'],
+        );
+        await database.query(
+          'select * from public.save_daily_reading_total(null, $1, $2, $3, $4)',
+          [garden.rows[0].id, configuration.rows[0].id, '2027-01-03', 25],
+        );
+        const finished = await database.query(
+          'select * from public.finish_reading_attempt($1, $2, $3)',
+          [firstAttempt.rows[0].id, '2027-01-12', 4.5],
+        );
+        const tbr = await database.query('select book_id from public.tbr_entries where book_id = $1', [garden.rows[0].id]);
+        const reread = await database.query(
+          'select * from public.start_reading_attempt($1, $2)',
+          [garden.rows[0].id, '2027-02-01'],
+        );
+        const books = await database.query(
+          'select count(distinct book_id)::integer as count from public.reading_attempts where finished_on is not null',
+        );
+        const attempts = await database.query(
+          'select id, started_on, finished_on, rating, is_current from public.reading_attempts where book_id = $1 order by started_on',
+          [garden.rows[0].id],
+        );
+        return { finished: finished.rows[0], tbr, reread: reread.rows[0], books, attempts };
+      });
+
+      assert.equal(dateString(result.finished.finished_on), '2027-01-12');
+      assert.equal(Number(result.finished.rating), 4.5);
+      assert.equal(result.finished.is_current, false);
+      assert.deepEqual(result.tbr.rows, []);
+      assert.equal(result.reread.book_id, garden.rows[0].id);
+      assert.notEqual(result.reread.id, result.finished.id);
+      assert.equal(result.books.rows[0].count, 1);
+      assert.equal(result.attempts.rows.length, 2);
+      assert.equal(result.attempts.rows[0].id, result.finished.id);
+      assert.equal(dateString(result.attempts.rows[0].finished_on), '2027-01-12');
+      assert.equal(Number(result.attempts.rows[0].rating), 4.5);
+      assert.equal(result.attempts.rows[1].finished_on, null);
+      assert.equal(result.attempts.rows[1].is_current, true);
     });
 
     await t.test('another reader and anonymous clients cannot access or forge activity', async () => {

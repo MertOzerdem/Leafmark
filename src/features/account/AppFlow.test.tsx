@@ -10,10 +10,11 @@ import type {
   ReadingConfigurationDraft,
   ReadingLog,
   ReadingLogDraft,
+  ReadBook,
   ReadingRepository,
 } from '../../reading/readingTypes';
 
-function TestApp({ initialIdentity = null }: { initialIdentity?: AuthIdentity | null }) {
+function TestApp({ initialIdentity = null, seedGardenInTbr = false }: { initialIdentity?: AuthIdentity | null; seedGardenInTbr?: boolean }) {
   const [identity, setIdentity] = useState<AuthIdentity | null>(initialIdentity);
   const [isLoaded, setIsLoaded] = useState(true);
 
@@ -70,16 +71,23 @@ function TestApp({ initialIdentity = null }: { initialIdentity?: AuthIdentity | 
     [],
   );
 
-  const tbr = useMemo<TbrRepository>(() => createTestTbrRepository(), []);
-  const reading = useMemo<ReadingRepository>(() => createTestReadingRepository(), []);
+  const bookStore = useMemo(() => createTestBookStore(seedGardenInTbr), [seedGardenInTbr]);
+  const tbr = useMemo<TbrRepository>(() => createTestTbrRepository(bookStore), [bookStore]);
+  const reading = useMemo<ReadingRepository>(() => createTestReadingRepository(bookStore), [bookStore]);
 
   const session: AuthSession = { isLoaded, identity };
 
   return <AppFlow auth={auth} session={session} profiles={profiles} catalog={catalog} tbr={tbr} reading={reading} />;
 }
 
-function createTestReadingRepository(): ReadingRepository {
-  const books: Book[] = [
+interface TestBookStore {
+  books: Book[];
+  tbrBookIds: string[];
+}
+
+function createTestBookStore(seedGardenInTbr: boolean): TestBookStore {
+  return {
+    books: [
     {
       id: 'garden',
       googleVolumeId: 'garden-volume',
@@ -100,16 +108,22 @@ function createTestReadingRepository(): ReadingRepository {
       pageCount: 275,
       description: null,
     },
-  ];
+    ],
+    tbrBookIds: seedGardenInTbr ? ['garden'] : [],
+  };
+}
+
+function createTestReadingRepository(bookStore: TestBookStore): ReadingRepository {
   let configurations: ReadingConfiguration[] = [];
   let currentAttempt: ReadingAttempt | null = null;
+  let attempts: ReadingAttempt[] = [];
   let logs: ReadingLog[] = [];
   let nextId = 1;
 
   return {
     async loadSnapshot(year) {
       return {
-        books: books.map((book) => ({ ...book })),
+        books: bookStore.books.map((book) => ({ ...book })),
         configurations: configurations.map((configuration) => ({
           ...configuration,
           categories: configuration.categories.map((category) => ({ ...category })),
@@ -118,6 +132,12 @@ function createTestReadingRepository(): ReadingRepository {
         logs: logs.filter((log) => log.date.startsWith(`${year}-`)).map((log) => ({ ...log })),
         usedConfigurationIds: [...new Set(logs.map((log) => log.configurationId))],
       };
+    },
+    async loadReadBooks(): Promise<ReadBook[]> {
+      return bookStore.books.flatMap((book) => {
+        const bookAttempts = attempts.filter((attempt) => attempt.bookId === book.id).map((attempt) => ({ ...attempt }));
+        return bookAttempts.some((attempt) => attempt.finishedOn !== null) ? [{ book: { ...book }, attempts: bookAttempts }] : [];
+      });
     },
     async saveConfiguration(draft: ReadingConfigurationDraft) {
       const configuration: ReadingConfiguration = {
@@ -136,28 +156,55 @@ function createTestReadingRepository(): ReadingRepository {
       }));
     },
     async startBook(bookId: string, startedOn: string) {
-      const book = books.find((entry) => entry.id === bookId);
+      const book = bookStore.books.find((entry) => entry.id === bookId);
       if (!book) throw new Error('Book not found');
-      currentAttempt = { id: `attempt-${nextId++}`, bookId, bookTitle: book.title, startedOn };
+      if (currentAttempt?.bookId === bookId) {
+        currentAttempt = { ...currentAttempt, startedOn };
+        attempts = attempts.map((attempt) => attempt.id === currentAttempt?.id ? currentAttempt : attempt);
+        return;
+      }
+      if (currentAttempt) {
+        attempts = attempts.map((attempt) => attempt.id === currentAttempt?.id ? { ...attempt, isCurrent: false } : attempt);
+      }
+      currentAttempt = createAttempt(`attempt-${nextId++}`, bookId, book.title, startedOn);
+      attempts = [...attempts, currentAttempt];
+    },
+    async startReread(bookId: string, startedOn: string) {
+      const book = bookStore.books.find((entry) => entry.id === bookId);
+      if (!book) throw new Error('Book not found');
+      if (currentAttempt) {
+        attempts = attempts.map((attempt) => attempt.id === currentAttempt?.id ? { ...attempt, isCurrent: false } : attempt);
+      }
+      currentAttempt = createAttempt(`attempt-${nextId++}`, bookId, book.title, startedOn);
+      attempts = [...attempts, currentAttempt];
+    },
+    async finishAttempt(attemptId, finishedOn, rating) {
+      const attempt = attempts.find((entry) => entry.id === attemptId && entry.isCurrent);
+      if (!attempt) throw new Error('Current attempt not found');
+      attempts = attempts.map((entry) => entry.id === attemptId ? { ...entry, finishedOn, rating, isCurrent: false } : entry);
+      currentAttempt = null;
+      bookStore.tbrBookIds = bookStore.tbrBookIds.filter((bookId) => bookId !== attempt.bookId);
     },
     async updateAttemptStart(attemptId: string, startedOn: string) {
       if (!currentAttempt || currentAttempt.id !== attemptId) throw new Error('Reading attempt not found');
       currentAttempt = { ...currentAttempt, startedOn };
+      attempts = attempts.map((attempt) => attempt.id === attemptId ? currentAttempt as ReadingAttempt : attempt);
     },
     async saveDailyTotal(input: ReadingLogDraft) {
       const configuration = configurations.find((entry) => entry.id === input.configurationId);
-      const book = books.find((entry) => entry.id === input.bookId);
+      const book = bookStore.books.find((entry) => entry.id === input.bookId);
       if (!configuration || !book) throw new Error('Reading setup is incomplete');
 
       let attempt = currentAttempt?.bookId === input.bookId ? currentAttempt : null;
       if (!attempt && input.id) {
         const savedLog = logs.find((entry) => entry.id === input.id);
         if (savedLog?.bookId === input.bookId) {
-          attempt = { id: savedLog.attemptId, bookId: book.id, bookTitle: book.title, startedOn: input.date };
+          attempt = attempts.find((entry) => entry.id === savedLog.attemptId) ?? null;
         }
       }
       if (!attempt) {
-        attempt = { id: `attempt-${nextId++}`, bookId: book.id, bookTitle: book.title, startedOn: input.date };
+        attempt = createAttempt(`attempt-${nextId++}`, book.id, book.title, input.date);
+        attempts = [...attempts, attempt];
         if (!input.id) currentAttempt = attempt;
       }
 
@@ -181,41 +228,42 @@ function createTestReadingRepository(): ReadingRepository {
   };
 }
 
-function createTestTbrRepository(): TbrRepository {
+function createAttempt(id: string, bookId: string, bookTitle: string, startedOn: string): ReadingAttempt {
+  return { id, bookId, bookTitle, startedOn, finishedOn: null, rating: null, isCurrent: true };
+}
+
+function createTestTbrRepository(bookStore: TestBookStore): TbrRepository {
   let nextId = 1;
-  let books: TbrBook[] = [];
-  const createBook = (id: string, draft: BookDraft, position: number): TbrBook => ({
-    ...draft,
-    id,
-    position,
+  const listBooks = (): TbrBook[] => bookStore.tbrBookIds.flatMap((id, position) => {
+    const book = bookStore.books.find((entry) => entry.id === id);
+    return book ? [{ ...book, position }] : [];
   });
 
   return {
     async list() {
-      return books.map((book) => ({ ...book }));
+      return listBooks();
     },
     async add(draft) {
-      const book = createBook(`book-${nextId++}`, draft, books.length);
-      books = [...books, book];
-      return { ...book };
+      const book: Book = { ...draft, id: `book-${nextId++}` };
+      bookStore.books = [...bookStore.books, book];
+      bookStore.tbrBookIds = [...bookStore.tbrBookIds, book.id];
+      return { ...book, position: bookStore.tbrBookIds.length - 1 };
     },
     async update(bookId, draft) {
-      const existing = books.find((book) => book.id === bookId);
+      const existing = bookStore.books.find((book) => book.id === bookId);
       if (!existing) throw new Error('Book not found');
-      books = books.map((book) => (book.id === bookId ? { ...book, ...draft } : book));
-      const updatedBook = books.find((book) => book.id === bookId);
+      bookStore.books = bookStore.books.map((book) => (book.id === bookId ? { ...book, ...draft } : book));
+      const updatedBook = listBooks().find((book) => book.id === bookId);
       if (!updatedBook) throw new Error('Book not found');
       return { ...updatedBook };
     },
     async remove(bookId) {
-      books = books.filter((book) => book.id !== bookId);
+      bookStore.tbrBookIds = bookStore.tbrBookIds.filter((id) => id !== bookId);
     },
     async reorder(bookIds) {
-      books = bookIds.map((bookId, position) => {
-        const book = books.find((entry) => entry.id === bookId);
-        if (!book) throw new Error('Book not found');
-        return { ...book, position };
-      });
+      const currentIds = new Set(bookStore.tbrBookIds);
+      if (bookIds.length !== currentIds.size || bookIds.some((id) => !currentIds.has(id))) throw new Error('TBR book not found');
+      bookStore.tbrBookIds = [...bookIds];
     },
   };
 }
@@ -275,9 +323,12 @@ describe('private account app flow', () => {
       };
       const reading: ReadingRepository = {
         loadSnapshot: jest.fn(),
+        loadReadBooks: jest.fn(),
         saveConfiguration: jest.fn(),
         updateCategoryColor: jest.fn(),
         startBook: jest.fn(),
+        startReread: jest.fn(),
+        finishAttempt: jest.fn(),
         updateAttemptStart: jest.fn(),
         saveDailyTotal: jest.fn(),
       };
@@ -325,6 +376,32 @@ describe('private account app flow', () => {
     expect(screen.getByText('Current book: A Garden of Stories')).toBeTruthy();
   });
 
+  it('finishes a Book, removes it from TBR, and records a reread on the same Book page', async () => {
+    await render(<TestApp initialIdentity={{ subject: 'clerk:reader-rose', username: 'reader-rose' }} seedGardenInTbr />);
+
+    await fireEvent.changeText(screen.getByLabelText('Book start date'), '2027-01-02');
+    await fireEvent.press(screen.getByRole('button', { name: 'Start A Garden of Stories' }));
+    await waitFor(() => expect(screen.getByText('Current book: A Garden of Stories')).toBeTruthy());
+    await fireEvent.press(screen.getByRole('button', { name: 'Finish current book' }));
+    await fireEvent.changeText(screen.getByLabelText('Finish date'), '2027-01-12');
+    await fireEvent.press(screen.getByRole('button', { name: 'Rate 4.5 stars' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Finish book' }));
+
+    await waitFor(() => expect(screen.getByText('Read books · 1 unique Book')).toBeTruthy());
+    expect(screen.getByText('Your list · 0')).toBeTruthy();
+    expect(screen.getByText('Reading attempts · 1')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Open A Garden of Stories' }));
+    expect(screen.getByText('Book page: A Garden of Stories')).toBeTruthy();
+    expect(screen.getByText('2027-01-02 → 2027-01-12 · 4.5 stars')).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('Reread start date'), '2027-02-01');
+    await fireEvent.press(screen.getByRole('button', { name: 'Read this Book again' }));
+
+    await waitFor(() => expect(screen.getByText('Current book: A Garden of Stories')).toBeTruthy());
+    expect(screen.getByText('Reading attempts · 2')).toBeTruthy();
+    expect(screen.getByText('In progress · started 2027-02-01')).toBeTruthy();
+  });
+
   it('searches, manually adds, edits, reorders, and removes Books in the TBR', async () => {
     await render(<TestApp initialIdentity={{ subject: 'clerk:reader-ivy', username: 'reader-ivy' }} />);
 
@@ -361,7 +438,7 @@ describe('private account app flow', () => {
     await fireEvent.changeText(screen.getByLabelText('Book title'), 'Map of Quiet Stars, Revised');
     await fireEvent.changeText(screen.getByLabelText('Page count'), '280');
     await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
-    await waitFor(() => expect(screen.getByText('Map of Quiet Stars, Revised')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('Map of Quiet Stars, Revised').length).toBeGreaterThan(0));
 
     await fireEvent.press(screen.getByRole('button', { name: 'Remove A Garden of Stories from TBR' }));
     await waitFor(() => {
@@ -381,7 +458,7 @@ describe('private account app flow', () => {
     await fireEvent.changeText(screen.getByLabelText('Authors'), 'J. Reader');
     await fireEvent.press(screen.getByRole('button', { name: 'Save to TBR' }));
 
-    await waitFor(() => expect(screen.getByText('An Unlisted Novel')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('An Unlisted Novel').length).toBeGreaterThan(0));
     expect(screen.getByText('J. Reader')).toBeTruthy();
   });
 });

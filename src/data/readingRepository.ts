@@ -4,6 +4,7 @@ import type {
   ReadingAttempt,
   ReadingCategory,
   ReadingConfiguration,
+  ReadBook,
   ReadingLog,
   ReadingMeasure,
   ReadingRepository,
@@ -24,7 +25,7 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
           .order('created_at', { ascending: true }),
         client.from('reading_category_colors').select('position, color'),
         client.from('reading_attempts')
-          .select('id, book_id, started_on, book:books!inner(title)')
+          .select('id, book_id, started_on, finished_on, rating, is_current, book:books!inner(title)')
           .eq('is_current', true)
           .maybeSingle(),
         client.from('reading_logs')
@@ -66,6 +67,32 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
       };
     },
 
+    async loadReadBooks() {
+      const [booksResult, attemptsResult] = await Promise.all([
+        client.from('books').select(bookColumns).order('created_at', { ascending: true }),
+        client.from('reading_attempts')
+          .select('id, book_id, started_on, finished_on, rating, is_current, book:books!inner(title)')
+          .order('finished_on', { ascending: false, nullsFirst: false })
+          .order('started_on', { ascending: false }),
+      ]);
+      throwIfError(booksResult.error);
+      throwIfError(attemptsResult.error);
+
+      const books = arrayValue(booksResult.data).map(mapBookRecord);
+      const attemptsByBook = new Map<string, ReadingAttempt[]>();
+      for (const value of arrayValue(attemptsResult.data)) {
+        const attempt = mapReadingAttempt(value);
+        const attempts = attemptsByBook.get(attempt.bookId) ?? [];
+        attempts.push(attempt);
+        attemptsByBook.set(attempt.bookId, attempts);
+      }
+
+      return books.flatMap((book): ReadBook[] => {
+        const attempts = attemptsByBook.get(book.id) ?? [];
+        return attempts.some((attempt) => attempt.finishedOn !== null) ? [{ book, attempts }] : [];
+      });
+    },
+
     async saveConfiguration(configuration) {
       const { error } = await client.rpc('save_reading_configuration', {
         p_configuration_id: configuration.id,
@@ -88,6 +115,23 @@ export function createReadingRepository(client: SupabaseClient): ReadingReposito
       const { error } = await client.rpc('start_reading_attempt', {
         p_book_id: bookId,
         p_started_on: startedOn,
+      });
+      throwIfError(error);
+    },
+
+    async startReread(bookId, startedOn) {
+      const { error } = await client.rpc('start_reading_attempt', {
+        p_book_id: bookId,
+        p_started_on: startedOn,
+      });
+      throwIfError(error);
+    },
+
+    async finishAttempt(attemptId, finishedOn, rating) {
+      const { error } = await client.rpc('finish_reading_attempt', {
+        p_attempt_id: attemptId,
+        p_finished_on: finishedOn,
+        p_rating: rating,
       });
       throwIfError(error);
     },
@@ -147,6 +191,10 @@ function parseCategories(value: unknown): ReadingCategory[] {
 }
 
 function mapCurrentAttempt(value: unknown): ReadingAttempt {
+  return mapReadingAttempt(value);
+}
+
+function mapReadingAttempt(value: unknown): ReadingAttempt {
   const row = asRecord(value);
   const book = asRecord(row.book);
   const attempt = {
@@ -154,6 +202,9 @@ function mapCurrentAttempt(value: unknown): ReadingAttempt {
     bookId: stringValue(row.book_id),
     bookTitle: stringValue(book.title),
     startedOn: stringValue(row.started_on),
+    finishedOn: nullableString(row.finished_on),
+    rating: nullableRating(row.rating),
+    isCurrent: row.is_current === true,
   };
   if (!attempt.id || !attempt.bookId || !attempt.bookTitle || !attempt.startedOn) {
     throw new Error('The data service returned an incomplete Current book attempt.');
@@ -186,6 +237,19 @@ function mapReadingLog(value: unknown): ReadingLog {
 
 function parseMeasure(value: unknown): ReadingMeasure | null {
   return value === 'minutes' || value === 'pages' || value === 'chapters' ? value : null;
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function nullableRating(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const rating = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+  if (!Number.isFinite(rating) || rating < 0.5 || rating > 5 || !Number.isInteger(rating * 2)) {
+    throw new Error('The data service returned an invalid Reading rating.');
+  }
+  return rating;
 }
 
 function arrayValue(value: unknown): unknown[] {

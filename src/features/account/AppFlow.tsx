@@ -20,6 +20,7 @@ import type {
 import type { BookCatalog, TbrRepository } from '../../books/bookTypes';
 import type { ReadingRepository } from '../../reading/readingTypes';
 import { journalColors as colors } from '../../theme/colors';
+import { ReadBooksLibrary } from '../books/ReadBooksLibrary';
 import { TbrScreen } from '../books/TbrScreen';
 import { ReadingTrackerScreen } from '../reading/ReadingTrackerScreen';
 import { JournalAccents } from './JournalAccents';
@@ -43,6 +44,11 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppF
   const [profile, setProfile] = useState<ReaderProfile | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [collectionRevision, setCollectionRevision] = useState(0);
+
+  const onReadingChanged = useCallback(() => {
+    setCollectionRevision((revision) => revision + 1);
+  }, []);
 
   const identity = session.identity;
   const subject = identity?.subject ?? null;
@@ -254,8 +260,22 @@ export function AppFlow({ auth, session, profiles, catalog, tbr, reading }: AppF
             </View>
           ) : null}
 
-          <ReadingTrackerScreen repository={reading} />
-          <TbrScreen catalog={catalog} repository={tbr} />
+          <ReadingTrackerScreen
+            onBookFinished={onReadingChanged}
+            refreshToken={collectionRevision}
+            repository={reading}
+          />
+          <ReadBooksLibrary
+            onReadingChanged={onReadingChanged}
+            refreshToken={collectionRevision}
+            repository={reading}
+          />
+          <TbrScreen
+            catalog={catalog}
+            onBooksChanged={onReadingChanged}
+            refreshToken={collectionRevision}
+            repository={tbr}
+          />
 
           <Pressable
             accessibilityRole="button"

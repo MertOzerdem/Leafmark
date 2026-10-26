@@ -14,6 +14,8 @@ import { journalColors as colors } from '../../theme/colors';
 
 interface TbrScreenProps {
   catalog: BookCatalog;
+  onBooksChanged(): void;
+  refreshToken: number;
   repository: TbrRepository;
 }
 
@@ -41,7 +43,7 @@ const emptyBook: BookDraft = {
   description: null,
 };
 
-export function TbrScreen({ catalog, repository }: TbrScreenProps) {
+export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }: TbrScreenProps) {
   const [books, setBooks] = useState<TbrBook[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
@@ -66,7 +68,7 @@ export function TbrScreen({ catalog, repository }: TbrScreenProps) {
 
   useEffect(() => {
     void loadBooks();
-  }, [loadBooks]);
+  }, [loadBooks, refreshToken]);
 
   async function searchCatalog() {
     const normalizedQuery = query.trim();
@@ -97,6 +99,7 @@ export function TbrScreen({ catalog, repository }: TbrScreenProps) {
       if (editor?.mode === 'edit') {
         await repository.update(editor.initialBook.id, book);
         await loadBooks();
+        onBooksChanged();
       } else {
         await addBookAndReload(book);
       }
@@ -151,6 +154,7 @@ export function TbrScreen({ catalog, repository }: TbrScreenProps) {
   async function addBookAndReload(book: BookDraft) {
     await repository.add(book);
     await loadBooks();
+    onBooksChanged();
   }
 
   return (

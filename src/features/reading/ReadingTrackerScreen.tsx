@@ -18,9 +18,12 @@ import type {
   ReadingRepository,
   ReadingSnapshot,
 } from '../../reading/readingTypes';
+import { isValidReadingDate, padDatePart, todayDate } from '../../reading/readingDates';
 
 interface ReadingTrackerScreenProps {
   repository: ReadingRepository;
+  refreshToken: number;
+  onBookFinished(): void;
 }
 
 const categoryPalette = ['#EFE4E7', '#D7B5C0', '#B98598', '#896878', '#5A4351'];
@@ -37,7 +40,7 @@ const emptySnapshot: ReadingSnapshot = {
   usedConfigurationIds: [],
 };
 
-export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) {
+export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository }: ReadingTrackerScreenProps) {
   const [year, setYear] = useState(2027);
   const [snapshot, setSnapshot] = useState(emptySnapshot);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +54,10 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingLog, setIsSavingLog] = useState(false);
+  const [finishDate, setFinishDate] = useState(todayDate());
+  const [finishRating, setFinishRating] = useState<number | null>(null);
+  const [isFinishing, setIsFinishing] = useState(false);
+  const [isFinishFormOpen, setIsFinishFormOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const loadSnapshot = useCallback(async (selectSavedConfiguration = false) => {
@@ -80,6 +87,10 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
     void loadSnapshot(true);
   }, [loadSnapshot]);
 
+  useEffect(() => {
+    if (refreshToken > 0) void loadSnapshot(false);
+  }, [loadSnapshot, refreshToken]);
+
   const configurationForDate = useMemo(() => {
     if (settingsDirty && readingDate >= settingsDraft.startsOn) return { ...settingsDraft, id: null };
     return findConfigurationForDate(snapshot.configurations, readingDate) ??
@@ -89,7 +100,7 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
   const unitName = configurationForDate?.measure ?? settingsDraft.measure;
 
   async function saveSettings() {
-    if (!isValidDate(settingsDraft.startsOn)) {
+    if (!isValidReadingDate(settingsDraft.startsOn)) {
       setMessage('Enter a valid date for this reading-measure baseline.');
       return;
     }
@@ -131,7 +142,7 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
   }
 
   async function startBook(bookId: string) {
-    if (!isValidDate(bookStartDate)) {
+    if (!isValidReadingDate(bookStartDate)) {
       setMessage('Enter a valid book start date.');
       return;
     }
@@ -147,7 +158,7 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
 
   async function saveCurrentStartDate() {
     const attempt = snapshot.currentAttempt;
-    if (!attempt || !isValidDate(currentStartDate)) {
+    if (!attempt || !isValidReadingDate(currentStartDate)) {
       setMessage('Enter a valid book start date.');
       return;
     }
@@ -166,7 +177,7 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
       setMessage('Choose a book for this daily total.');
       return;
     }
-    if (!isValidDate(readingDate)) {
+    if (!isValidReadingDate(readingDate)) {
       setMessage('Enter a valid reading date.');
       return;
     }
@@ -201,6 +212,34 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
       setMessage('The daily total could not be saved. Try again.');
     } finally {
       setIsSavingLog(false);
+    }
+  }
+
+  async function finishCurrentBook() {
+    const attempt = snapshot.currentAttempt;
+    if (!attempt) return;
+    if (!isValidReadingDate(finishDate) || finishDate < attempt.startedOn) {
+      setMessage('Finish date must be a valid date on or after the book start date.');
+      return;
+    }
+    if (finishRating === null) {
+      setMessage('Choose a rating from 0.5 to 5 stars.');
+      return;
+    }
+
+    setIsFinishing(true);
+    setMessage(null);
+    try {
+      await repository.finishAttempt(attempt.id, finishDate, finishRating);
+      setIsFinishFormOpen(false);
+      setFinishRating(null);
+      await loadSnapshot(false);
+      onBookFinished();
+      setMessage('Book finished and added to Read Books.');
+    } catch {
+      setMessage('The Book could not be marked finished. Try again.');
+    } finally {
+      setIsFinishing(false);
     }
   }
 
@@ -389,6 +428,55 @@ export function ReadingTrackerScreen({ repository }: ReadingTrackerScreenProps) 
                 <Text style={styles.secondaryButtonText}>Save start date</Text>
               </Pressable>
             </View>
+            {isFinishFormOpen ? (
+              <View style={styles.finishPanel}>
+                <Text style={styles.fieldLabel}>Finish date</Text>
+                <TextInput
+                  accessibilityLabel="Finish date"
+                  keyboardType="numbers-and-punctuation"
+                  onChangeText={setFinishDate}
+                  placeholder="YYYY-MM-DD"
+                  style={styles.input}
+                  value={finishDate}
+                />
+                <Text style={styles.fieldLabel}>Rating · choose half-star increments</Text>
+                <View style={styles.buttonRow}>
+                  {Array.from({ length: 10 }, (_, index) => (index + 1) / 2).map((rating) => (
+                    <Pressable
+                      key={rating}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Rate ${rating} stars`}
+                      accessibilityState={{ selected: finishRating === rating }}
+                      onPress={() => setFinishRating(rating)}
+                      style={[styles.ratingChoice, finishRating === rating && styles.selectedChoice]}
+                    >
+                      <Text style={styles.ratingText}>{starsForRating(rating)}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Finish book"
+                  disabled={isFinishing}
+                  onPress={() => void finishCurrentBook()}
+                  style={[styles.primaryButton, styles.finishButton, isFinishing && styles.disabledButton]}
+                >
+                  {isFinishing ? <ActivityIndicator color={colors.panel} /> : <Text style={styles.primaryButtonText}>Finish book</Text>}
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => { setIsFinishFormOpen(false); setFinishRating(null); }} style={styles.cancelFinishButton}>
+                  <Text style={styles.secondaryButtonText}>Cancel</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Finish current book"
+                onPress={() => { setFinishDate(todayDate()); setIsFinishFormOpen(true); }}
+                style={styles.primaryButton}
+              >
+                <Text style={styles.primaryButtonText}>Finish current book</Text>
+              </Pressable>
+            )}
           </>
         ) : <Text style={styles.helpText}>Choose a Book and start it, or select a Book when you enter its first daily total.</Text>}
 
@@ -528,7 +616,7 @@ function AnnualReadingGrid({
           <View key={day} style={styles.calendarRow}>
             <Text style={styles.dayNumberCell}>{day}</Text>
             {months.map((month, monthIndex) => {
-              const date = `${year}-${pad(monthIndex + 1)}-${pad(day)}`;
+              const date = `${year}-${padDatePart(monthIndex + 1)}-${padDatePart(day)}`;
               const isValidDay = day <= daysInMonth(year, monthIndex);
               const activity = isValidDay ? totals.get(date) : undefined;
               const label = activity
@@ -641,20 +729,6 @@ function areCategoriesValid(categories: ReadingCategory[]): boolean {
   });
 }
 
-function todayDate(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-function isValidDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  return year > 0 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month - 1);
-}
-
 function daysInMonth(year: number, zeroBasedMonth: number): number {
   return new Date(year, zeroBasedMonth + 1, 0).getDate();
 }
@@ -663,12 +737,13 @@ function isLeapYear(year: number): boolean {
   return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 }
 
-function pad(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
 function capitalize(value: string): string {
   return `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function starsForRating(rating: number): string {
+  const wholeStars = Math.floor(rating);
+  return `${'★'.repeat(wholeStars)}${rating % 1 === 0.5 ? '½' : ''}`;
 }
 
 const styles = StyleSheet.create({
@@ -705,6 +780,11 @@ const styles = StyleSheet.create({
   dateInput: { flex: 1, minWidth: 140 },
   bookChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
   saveLogButton: { alignSelf: 'flex-start', marginTop: 14 },
+  finishPanel: { backgroundColor: colors.paper, borderRadius: 14, marginTop: 14, padding: 14 },
+  ratingChoice: { alignItems: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 42, minWidth: 42, paddingHorizontal: 6 },
+  ratingText: { color: '#806C3E', fontSize: 13 },
+  finishButton: { alignSelf: 'flex-start', marginTop: 14 },
+  cancelFinishButton: { alignSelf: 'flex-start', marginTop: 8, minHeight: 38, justifyContent: 'center', paddingHorizontal: 8 },
   cancelButton: { alignSelf: 'flex-start', marginTop: 8, minHeight: 40, justifyContent: 'center', paddingHorizontal: 8 },
   message: { color: colors.error, fontSize: 13, lineHeight: 19, marginTop: 10 },
   loader: { marginVertical: 16 },

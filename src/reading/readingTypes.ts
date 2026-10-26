@@ -21,6 +21,14 @@ export interface ReadingAttempt {
   bookId: string;
   bookTitle: string;
   startedOn: string;
+  finishedOn: string | null;
+  rating: number | null;
+  isCurrent: boolean;
+}
+
+export interface ReadBook {
+  book: Book;
+  attempts: ReadingAttempt[];
 }
 
 export interface ReadingLog {
@@ -60,9 +68,12 @@ export interface ReadingLogDraft {
 
 export interface ReadingRepository {
   loadSnapshot(year: number): Promise<ReadingSnapshot>;
+  loadReadBooks(): Promise<ReadBook[]>;
   saveConfiguration(configuration: ReadingConfigurationDraft): Promise<void>;
   updateCategoryColor(position: number, color: string): Promise<void>;
   startBook(bookId: string, startedOn: string): Promise<void>;
+  startReread(bookId: string, startedOn: string): Promise<void>;
+  finishAttempt(attemptId: string, finishedOn: string, rating: number): Promise<void>;
   updateAttemptStart(attemptId: string, startedOn: string): Promise<void>;
   saveDailyTotal(log: ReadingLogDraft): Promise<void>;
 }
