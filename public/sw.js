@@ -1,4 +1,4 @@
-const cacheName = 'leafmark-shell-v1';
+const cacheName = 'leafmark-shell-__LEAFMARK_CACHE_VERSION__';
 const appRoot = new URL('/Leafmark/', self.location.origin);
 
 self.addEventListener('install', (event) => {
@@ -15,6 +15,10 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     await self.clients.claim();
+    const oldCaches = (await caches.keys()).filter(
+      (name) => name.startsWith('leafmark-shell-') && name !== cacheName,
+    );
+    await Promise.all(oldCaches.map((name) => caches.delete(name)));
   })());
 });
 

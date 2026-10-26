@@ -33,6 +33,13 @@ test('the iPad Home Screen app opens its cached Leafmark shell offline', async (
   const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
   expect(favicon).toBe('/Leafmark/favicon.ico');
 
+  const precache = await page.evaluate(async () => {
+    const response = await fetch(new URL('precache-manifest.json', document.baseURI));
+    return response.json() as Promise<{ version: string }>;
+  });
+  const serviceWorker = await page.request.get(new URL('sw.js', page.url()).toString());
+  expect(await serviceWorker.text()).toContain(`const cacheName = 'leafmark-shell-${precache.version}'`);
+
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
   });
