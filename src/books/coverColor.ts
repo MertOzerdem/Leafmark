@@ -1,12 +1,12 @@
-export interface IosCoverColorPalette {
-  platform: 'ios';
-  primary?: string;
-  background?: string;
-  secondary?: string;
-}
+export type CoverColorPalette =
+  | { platform: 'ios'; primary?: string; background?: string; secondary?: string }
+  | { platform: 'web'; dominant?: string; vibrant?: string; muted?: string };
 
-export function prominentCoverColor(palette: IosCoverColorPalette): string | null {
-  return [palette.primary, palette.background, palette.secondary].find(isHexColor)?.toUpperCase() ?? null;
+export function prominentCoverColor(palette: CoverColorPalette): string | null {
+  const candidates = palette.platform === 'ios'
+    ? [palette.primary, palette.background, palette.secondary]
+    : [palette.dominant, palette.vibrant, palette.muted];
+  return candidates.find(isHexColor)?.toUpperCase() ?? null;
 }
 
 export function textColorOnSpine(hexColor: string): '#3C392E' | '#FFFCF2' {

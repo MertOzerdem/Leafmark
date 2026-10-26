@@ -10,6 +10,11 @@ describe('bookshelf cover colors', () => {
     expect(prominentCoverColor({ platform: 'ios', primary: 'unavailable', background: 'not-a-color' })).toBeNull();
   });
 
+  it('uses the dominant web cover color and falls back through the web palette', () => {
+    expect(prominentCoverColor({ platform: 'web', dominant: '#D59AAA', vibrant: '#9A7181' })).toBe('#D59AAA');
+    expect(prominentCoverColor({ platform: 'web', dominant: 'unavailable', vibrant: '#9A7181' })).toBe('#9A7181');
+  });
+
   it('chooses readable lettering for both light and dark spine colors', () => {
     expect(textColorOnSpine('#F5F0DF')).toBe('#3C392E');
     expect(textColorOnSpine('#363A2D')).toBe('#FFFCF2');

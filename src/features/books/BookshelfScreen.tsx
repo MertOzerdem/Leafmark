@@ -34,7 +34,7 @@ export function BookshelfScreen({ refreshToken, repository }: BookshelfScreenPro
 
       void getColors(coverUrl, { fallback: item.spineColor, cache: true, key: lookupKey })
         .then(async (palette) => {
-          if (palette.platform !== 'ios') return;
+          if (palette.platform === 'android') return;
           const color = prominentCoverColor(palette);
           if (!color || color.toLowerCase() === item.spineColor.toLowerCase()) return;
           const saved = await repository.setDefaultSpineColor(item.book.id, color);
