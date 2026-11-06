@@ -1,6 +1,7 @@
-import React, { type ReactNode, useCallback, useEffect, useState } from 'react';
+import React, { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -23,10 +24,14 @@ import type { BookshelfRepository } from '../../books/bookshelfTypes';
 import type { ReadingRepository } from '../../reading/readingTypes';
 import { journalColors as colors } from '../../theme/colors';
 import { ReadBooksLibrary } from '../books/ReadBooksLibrary';
+import { BookPageSaveButton, type BookPageSaveStatus } from '../books/BookPage';
 import { TbrScreen } from '../books/TbrScreen';
 import { ReadingTrackerScreen } from '../reading/ReadingTrackerScreen';
 import { BookshelfScreen } from '../books/BookshelfScreen';
+import { BookPageTemplateEditor } from '../books/BookPageTemplateEditor';
+import { TbrCategorySettings } from '../books/TbrScreen';
 import { JournalAccents } from './JournalAccents';
+import { pickBookImage } from '../books/pickBookImage';
 
 interface AppFlowProps {
   auth: AuthActions;
@@ -41,7 +46,7 @@ interface AppFlowProps {
   storageStatus?: string;
 }
 
-type AppSection = 'bookshelf' | 'tracker' | 'read-books' | 'tbr';
+type AppSection = 'bookshelf' | 'tracker' | 'read-books' | 'tbr' | 'profile' | 'settings';
 
 export function AppFlow({
   auth,
@@ -66,6 +71,12 @@ export function AppFlow({
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [collectionRevision, setCollectionRevision] = useState(0);
   const [activeSection, setActiveSection] = useState<AppSection>('bookshelf');
+  const [settingsView, setSettingsView] = useState<'home' | 'book-page' | 'reading' | 'categories'>('home');
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const mainScrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+  const bookPageSaveActionRef = useRef<() => void>(() => undefined);
+  const [bookPageSaveStatus, setBookPageSaveStatus] = useState<BookPageSaveStatus | null>(null);
 
   const onReadingChanged = useCallback(() => {
     setCollectionRevision((revision) => revision + 1);
@@ -151,6 +162,49 @@ export function AppFlow({
     }
   }
 
+  async function chooseProfilePhoto() {
+    if (!profile || isSavingAvatar) return;
+    try {
+      const photo = await pickBookImage();
+      if (!photo) return;
+      setIsSavingAvatar(true);
+      await profiles.saveAvatar(profile.subject, photo);
+      setProfile((current) => current ? { ...current, avatarDataUrl: photo } : current);
+      setProfileError(null);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'The profile photo could not be saved. Try again.');
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  }
+
+  async function removeProfilePhoto() {
+    if (!profile?.avatarDataUrl || isSavingAvatar) return;
+    setIsSavingAvatar(true);
+    try {
+      await profiles.saveAvatar(profile.subject, null);
+      setProfile((current) => current ? { ...current, avatarDataUrl: null } : current);
+      setProfileError(null);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : 'The profile photo could not be removed. Try again.');
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  }
+
+  function openAccountSection(section: 'profile' | 'settings') {
+    setIsProfileMenuOpen(false);
+    setActiveSection(section);
+    if (section === 'settings') setSettingsView('home');
+    mainScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }
+
+  function signOut() {
+    setIsProfileMenuOpen(false);
+    setIsCreatingAccount(false);
+    void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
+  }
+
   if (!session.isLoaded) {
     return (
       <View style={styles.centeredScreen} testID="session-loading">
@@ -174,17 +228,6 @@ export function AppFlow({
             <Text style={styles.intro}>
               Create an account on this iPad or sign in to keep each reader’s books and notes separate in Leafmark’s local database.
             </Text>
-            {storageStatus ? (
-              <>
-                <View style={styles.installNote}>
-                  <Text style={styles.installTitle}>Made for your Home Screen</Text>
-                  <Text style={styles.installText}>Open Leafmark in Safari, tap Share, then choose Add to Home Screen.</Text>
-                </View>
-                <Text style={styles.privacyNote}>Connect to the internet for the first visit and app updates.</Text>
-                <Text style={styles.privacyNote}>Your journal opens offline after the first visit.</Text>
-              </>
-            ) : null}
-
             <Text style={styles.fieldLabel}>Username</Text>
             <TextInput
               autoCapitalize="none"
@@ -259,12 +302,6 @@ export function AppFlow({
             <Text style={styles.privacyNote}>
               This account is saved only on this iPad. Leafmark does not sync it to another device.
             </Text>
-            {backupControls}
-            {storageStatus ? (
-              <Text accessibilityLiveRegion="polite" style={styles.privacyNote} testID="storage-status">
-                {storageStatus}
-              </Text>
-            ) : null}
             <Text style={styles.privacyNote}>There is no password recovery. Keep your password safe.</Text>
           </View>
         </ScrollView>
@@ -275,63 +312,10 @@ export function AppFlow({
   return (
     <View style={styles.screen}>
       <JournalAccents />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
-        <View style={styles.appHeader}>
-          <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>LEAFMARK · LOCAL READING JOURNAL</Text>
-            <Text style={styles.headerTitle}>Welcome back, {identity.username}.</Text>
-            <Text style={styles.headerSubtitle}>Local account on this iPad · {identity.username}</Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setIsCreatingAccount(false);
-              void auth.signOut().catch((error: unknown) => setProfileError(getReadableError(error)));
-            }}
-            style={styles.headerSignOut}
-          >
-            <Text style={styles.secondaryButtonText}>Sign out</Text>
-          </Pressable>
-        </View>
-
-        <ScrollView style={styles.mainContent} contentContainerStyle={styles.privateShell} keyboardShouldPersistTaps="handled">
-
-          {isProfileLoading ? (
-            <View style={styles.profileLoading} testID="profile-loading">
-              <ActivityIndicator color={colors.olive} />
-              <Text style={styles.loadingText}>Loading your private reading space…</Text>
-            </View>
-          ) : profileError ? (
-            <View style={styles.profileCard}>
-              <Text accessibilityRole="alert" style={styles.error}>{profileError}</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => void loadProfile(identity)}
-                style={styles.secondaryButton}
-              >
-                <Text style={styles.secondaryButtonText}>Try again</Text>
-              </Pressable>
-            </View>
-          ) : profile?.subject === subject ? (
-            <View style={styles.profileCard}>
-              <Text style={styles.profileTitle}>Your local shelf</Text>
-              <Text style={styles.profileLabel}>{profile.privateLabel}</Text>
-              <Text style={styles.profileHint}>Your books, notes, and layout are saved on this iPad and are not synced.</Text>
-              {storageStatus ? (
-                <Text accessibilityLiveRegion="polite" style={styles.profileHint} testID="storage-status">
-                  {storageStatus}
-                </Text>
-              ) : null}
-              {backupControls}
-            </View>
-          ) : null}
-
-          {activeSection === 'bookshelf' ? <BookshelfScreen refreshToken={collectionRevision} repository={bookshelf} /> : null}
-          {activeSection === 'tracker' ? <ReadingTrackerScreen onBookFinished={onReadingChanged} refreshToken={collectionRevision} repository={reading} /> : null}
-          {activeSection === 'read-books' ? <ReadBooksLibrary onReadingChanged={onReadingChanged} ownerSubject={subject ?? ''} pages={bookPages} refreshToken={collectionRevision} repository={reading} /> : null}
-          {activeSection === 'tbr' ? <TbrScreen catalog={catalog} onBooksChanged={onReadingChanged} refreshToken={collectionRevision} repository={tbr} /> : null}
-        </ScrollView>
-        <View accessibilityLabel="Main navigation" style={styles.tabBar}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.contentLayer}>
+        <View accessibilityLabel="Main navigation" style={styles.navigationBar}>
+          <Text accessibilityRole="header" style={styles.brandWordmark}>LEAFMARK</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.navigationScroll} contentContainerStyle={styles.navigationItems}>
           {([
             ['bookshelf', 'Bookshelf', 'Open My Bookshelf'],
             ['tracker', 'Reading Log', 'Open Reading tracker'],
@@ -343,13 +327,146 @@ export function AppFlow({
               accessibilityRole="button"
               accessibilityState={{ selected: activeSection === section }}
               accessibilityLabel={accessibilityLabel}
-              onPress={() => setActiveSection(section)}
+              onPress={() => {
+                setActiveSection(section);
+                setIsProfileMenuOpen(false);
+                mainScrollRef.current?.scrollTo({ y: 0, animated: false });
+              }}
               style={[styles.tabButton, activeSection === section && styles.activeTab]}
             >
               <Text style={[styles.tabText, activeSection === section && styles.activeTabText]}>{label}</Text>
             </Pressable>
           ))}
+          </ScrollView>
+          <View style={styles.profileAnchor}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isProfileMenuOpen ? 'Close profile menu' : 'Open profile menu'}
+              accessibilityState={{ expanded: isProfileMenuOpen }}
+              onPress={() => setIsProfileMenuOpen((open) => !open)}
+              style={styles.headerProfileButton}
+            >
+              {profile?.avatarDataUrl ? (
+                <Image accessibilityLabel={`${identity.username} profile photo`} resizeMode="cover" source={{ uri: profile.avatarDataUrl }} style={styles.headerAvatarImage} />
+              ) : (
+                <Text style={styles.headerAvatarInitial}>{identity.username.trim().charAt(0).toUpperCase()}</Text>
+              )}
+            </Pressable>
+            {isProfileMenuOpen ? (
+              <View accessibilityLabel="Profile menu" style={styles.profileMenu} testID="profile-menu">
+                <Pressable accessibilityRole="button" accessibilityLabel="Open Profile" onPress={() => openAccountSection('profile')} style={styles.profileMenuItem}>
+                  <Text style={styles.profileMenuText}>Profile</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open Settings" onPress={() => openAccountSection('settings')} style={styles.profileMenuItem}>
+                  <Text style={styles.profileMenuText}>Settings</Text>
+                </Pressable>
+                <View style={styles.profileMenuDivider} />
+                <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={signOut} style={styles.profileMenuItem}>
+                  <Text style={styles.profileMenuSignOutText}>Sign out</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
         </View>
+
+        {activeSection === 'bookshelf' ? (
+          <View style={styles.bookshelfViewport}>
+            <View style={styles.bookshelfShell}>
+              <BookshelfScreen refreshToken={collectionRevision} repository={bookshelf} />
+            </View>
+          </View>
+        ) : (
+          <ScrollView ref={mainScrollRef} style={styles.mainContent} contentContainerStyle={styles.privateShell} keyboardShouldPersistTaps="handled">
+            {activeSection === 'tracker' ? <ReadingTrackerScreen onBookFinished={onReadingChanged} refreshToken={collectionRevision} repository={reading} /> : null}
+            {activeSection === 'read-books' ? <ReadBooksLibrary catalog={catalog} onReadingChanged={onReadingChanged} ownerSubject={subject ?? ''} pages={bookPages} refreshToken={collectionRevision} repository={reading} savePageActionRef={bookPageSaveActionRef} onSaveStatusChange={setBookPageSaveStatus} /> : null}
+            {activeSection === 'tbr' ? <TbrScreen catalog={catalog} onBooksChanged={onReadingChanged} refreshToken={collectionRevision} repository={tbr} /> : null}
+            {activeSection === 'profile' ? (
+              <View testID="profile-screen" style={styles.profileScreen}>
+                <Text accessibilityRole="header" style={styles.settingsTitle}>Profile</Text>
+                <View style={styles.profilePageCard}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={isSavingAvatar ? 'Saving profile photo' : 'Choose profile photo'}
+                    disabled={isSavingAvatar || !profile}
+                    onPress={() => void chooseProfilePhoto()}
+                    style={styles.largeAvatar}
+                  >
+                    {profile?.avatarDataUrl ? (
+                      <Image accessibilityLabel={`${identity.username} profile photo`} resizeMode="cover" source={{ uri: profile.avatarDataUrl }} style={styles.largeAvatarImage} />
+                    ) : (
+                      <Text style={styles.largeAvatarInitial}>{identity.username.trim().charAt(0).toUpperCase()}</Text>
+                    )}
+                  </Pressable>
+                  <Text style={styles.profilePageName}>{identity.username}</Text>
+                  <Pressable accessibilityRole="button" disabled={isSavingAvatar || !profile} onPress={() => void chooseProfilePhoto()} style={[styles.secondaryButton, styles.profilePhotoButton]}>
+                    <Text style={styles.secondaryButtonText}>{isSavingAvatar ? 'Saving photo…' : profile?.avatarDataUrl ? 'Change profile photo' : 'Add profile photo'}</Text>
+                  </Pressable>
+                  {profile?.avatarDataUrl ? (
+                    <Pressable accessibilityRole="button" disabled={isSavingAvatar} onPress={() => void removeProfilePhoto()} style={styles.removePhotoButton}>
+                      <Text style={styles.removePhotoText}>Remove profile photo</Text>
+                    </Pressable>
+                  ) : null}
+                  <Text style={styles.profileHint}>Your profile photo is stored only on this device.</Text>
+                  {profileError ? <Text accessibilityRole="alert" style={styles.error}>{profileError}</Text> : null}
+                </View>
+              </View>
+            ) : null}
+            {activeSection === 'settings' ? (
+              <View testID="settings-screen" style={styles.settingsScreen}>
+                {settingsView === 'book-page' ? <BookPageTemplateEditor pages={bookPages} onBack={() => setSettingsView('home')} /> : null}
+                {settingsView === 'reading' ? <View><Pressable accessibilityRole="button" onPress={() => setSettingsView('home')} style={styles.settingsBackButton}><Text style={styles.secondaryButtonText}>‹ Settings</Text></Pressable><ReadingTrackerScreen view="settings" onBookFinished={onReadingChanged} refreshToken={collectionRevision} repository={reading} /></View> : null}
+                {settingsView === 'categories' ? <View><Pressable accessibilityRole="button" onPress={() => setSettingsView('home')} style={styles.settingsBackButton}><Text style={styles.secondaryButtonText}>‹ Settings</Text></Pressable><TbrCategorySettings repository={tbr} onCategoriesChanged={onReadingChanged} /></View> : null}
+                {settingsView === 'home' ? <>
+                <Text accessibilityRole="header" style={styles.settingsTitle}>Settings</Text>
+                <View style={styles.settingsCard}>
+                  <Text style={styles.profileLabel}>Personalize your journal</Text>
+                  <Text style={styles.profileHint}>Set these once. Reading logs and Book pages use your saved choices.</Text>
+                  <Pressable accessibilityRole="button" onPress={() => setSettingsView('book-page')} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Book page template</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => setSettingsView('reading')} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Reading measure and colors</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => setSettingsView('categories')} style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Book category colors</Text>
+                  </Pressable>
+                </View>
+                {isProfileLoading ? (
+                  <View style={styles.profileLoading} testID="profile-loading">
+                    <ActivityIndicator color={colors.olive} />
+                    <Text style={styles.loadingText}>Loading account settings…</Text>
+                  </View>
+                ) : profileError ? (
+                  <View style={styles.settingsCard}>
+                    <Text accessibilityRole="alert" style={styles.error}>{profileError}</Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => void loadProfile(identity)}
+                      style={styles.secondaryButton}
+                    >
+                      <Text style={styles.secondaryButtonText}>Try again</Text>
+                    </Pressable>
+                  </View>
+                ) : profile?.subject === subject ? (
+                  <View style={styles.settingsCard}>
+                    <Text style={styles.profileLabel}>Local account · {profile.username}</Text>
+                    <Text style={styles.profileHint}>Your books, notes, and layout are saved on this iPad and are not synced.</Text>
+                    {storageStatus ? (
+                      <Text accessibilityLiveRegion="polite" style={styles.profileHint} testID="storage-status">
+                        {storageStatus}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+                {backupControls}
+                </> : null}
+              </View>
+            ) : null}
+          </ScrollView>
+        )}
+        {activeSection === 'read-books' && bookPageSaveStatus ? (
+          <BookPageSaveButton status={bookPageSaveStatus} onPress={() => bookPageSaveActionRef.current()} />
+        ) : null}
       </KeyboardAvoidingView>
     </View>
   );
@@ -361,7 +478,8 @@ function getReadableError(error: unknown): string {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.paper },
+  screen: { backgroundColor: colors.paper, flex: 1, height: '100vh', maxHeight: '100vh', overflow: 'hidden' },
+  contentLayer: { flex: 1, minHeight: 0 },
   authContent: { flexGrow: 1, justifyContent: 'center', padding: 28 },
   authCard: {
     alignSelf: 'center',
@@ -374,7 +492,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   kicker: { color: colors.olive, fontSize: 11, fontWeight: '700', letterSpacing: 1.7 },
-  title: { color: colors.ink, fontFamily: 'Georgia', fontSize: 33, lineHeight: 39, marginTop: 18 },
+  title: { color: colors.ink, fontFamily: 'Baskerville', fontSize: 36, lineHeight: 42, marginTop: 18 },
   intro: { color: colors.muted, fontSize: 16, lineHeight: 24, marginTop: 10 },
   fieldLabel: { color: colors.ink, fontSize: 14, fontWeight: '600', marginBottom: 7, marginTop: 21 },
   input: {
@@ -400,27 +518,44 @@ const styles = StyleSheet.create({
   modeButton: { alignItems: 'center', marginTop: 18, padding: 8 },
   modeButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
   privacyNote: { color: colors.muted, fontSize: 12, marginTop: 20, textAlign: 'center' },
-  installNote: { backgroundColor: '#F2EFDF', borderRadius: 18, marginTop: 28, padding: 18 },
-  installTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 18 },
-  installText: { color: colors.ink, fontSize: 14, lineHeight: 21, marginTop: 7 },
   error: { color: colors.error, fontSize: 14, lineHeight: 20, marginTop: 14 },
   centeredScreen: { alignItems: 'center', backgroundColor: colors.paper, flex: 1, justifyContent: 'center' },
   loadingText: { color: colors.muted, fontSize: 14, marginTop: 12 },
   privateShell: { alignSelf: 'center', flexGrow: 1, justifyContent: 'flex-start', maxWidth: 1000, paddingHorizontal: 22, paddingBottom: 30, paddingTop: 16, width: '100%' },
   mainContent: { flex: 1 },
-  appHeader: { alignItems: 'center', backgroundColor: '#F7F5EBE8', borderBottomColor: colors.line, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 16, justifyContent: 'space-between', paddingHorizontal: 22, paddingVertical: 12 },
-  headerCopy: { flex: 1 },
-  headerTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 23, marginTop: 6 },
-  headerSubtitle: { color: colors.muted, fontSize: 12, marginTop: 3 },
-  headerSignOut: { alignItems: 'center', borderColor: colors.line, borderRadius: 10, borderWidth: 1, justifyContent: 'center', minHeight: 42, paddingHorizontal: 12 },
-  tabBar: { alignItems: 'center', backgroundColor: colors.panel, borderTopColor: colors.line, borderTopWidth: 1, flexDirection: 'row', gap: 4, justifyContent: 'space-around', paddingHorizontal: 8, paddingVertical: 8 },
-  tabButton: { alignItems: 'center', borderRadius: 12, flex: 1, justifyContent: 'center', minHeight: 52, paddingHorizontal: 6 },
+  bookshelfViewport: { flex: 1, minHeight: 0, overflow: 'hidden' },
+  bookshelfShell: { alignSelf: 'center', flex: 1, justifyContent: 'flex-start', maxWidth: 1000, minHeight: 0, overflow: 'hidden', paddingHorizontal: 22, paddingBottom: 12, paddingTop: 8, width: '100%' },
+  brandWordmark: { color: colors.olive, flexShrink: 0, fontSize: 14, fontWeight: '800', letterSpacing: 1.4 },
+  navigationScroll: { flex: 1, minWidth: 0 },
+  profileAnchor: { alignItems: 'center', flexShrink: 0, position: 'relative', zIndex: 50 },
+  headerProfileButton: { alignItems: 'center', backgroundColor: colors.olive, borderColor: '#FFFCF2', borderRadius: 23, borderWidth: 2, height: 44, justifyContent: 'center', overflow: 'hidden', width: 44 },
+  headerAvatarImage: { borderRadius: 24, height: '100%', width: '100%' },
+  headerAvatarInitial: { color: colors.panel, fontFamily: 'Baskerville', fontSize: 22, fontWeight: '700' },
+  profileMenu: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 14, borderWidth: 1, elevation: 14, padding: 7, position: 'absolute', right: 0, shadowColor: '#403B2B', shadowOffset: { height: 4, width: 0 }, shadowOpacity: 0.2, shadowRadius: 12, top: 52, width: 190, zIndex: 60 },
+  profileMenuItem: { alignItems: 'flex-start', borderRadius: 9, justifyContent: 'center', minHeight: 42, paddingHorizontal: 13 },
+  profileMenuText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  profileMenuSignOutText: { color: '#8B3F32', fontSize: 14, fontWeight: '600' },
+  profileMenuDivider: { backgroundColor: colors.line, height: StyleSheet.hairlineWidth, marginHorizontal: 8, marginVertical: 4 },
+  navigationBar: { alignItems: 'center', backgroundColor: '#F7F5EBE8', borderBottomColor: colors.line, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, minHeight: 60, paddingHorizontal: 14, paddingVertical: 6, position: 'relative', zIndex: 30 },
+  navigationItems: { alignItems: 'center', flexGrow: 1, gap: 4, justifyContent: 'space-around' },
+  tabButton: { alignItems: 'center', borderRadius: 12, flexGrow: 1, justifyContent: 'center', minHeight: 44, minWidth: 94, paddingHorizontal: 8 },
   activeTab: { backgroundColor: '#E9E8DA' },
   tabText: { color: colors.muted, fontSize: 12, fontWeight: '600', textAlign: 'center' },
   activeTabText: { color: colors.ink },
   profileLoading: { alignItems: 'center', marginVertical: 30 },
-  profileCard: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 20, borderWidth: 1, marginVertical: 30, padding: 24 },
-  profileTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 24 },
+  profileScreen: { gap: 18 },
+  profilePageCard: { alignItems: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 20, borderWidth: 1, padding: 28 },
+  profilePhotoButton: { alignSelf: 'center' },
+  removePhotoButton: { alignItems: 'center', justifyContent: 'center', marginTop: 12, minHeight: 38, paddingHorizontal: 10 },
+  removePhotoText: { color: '#8B3F32', fontSize: 13, fontWeight: '600' },
+  largeAvatar: { alignItems: 'center', backgroundColor: '#E9E8DA', borderColor: colors.olive, borderRadius: 70, borderWidth: 2, height: 132, justifyContent: 'center', overflow: 'hidden', width: 132 },
+  largeAvatarImage: { borderRadius: 66, height: '100%', width: '100%' },
+  largeAvatarInitial: { color: colors.olive, fontFamily: 'Baskerville', fontSize: 58 },
+  profilePageName: { color: colors.ink, fontFamily: 'Baskerville', fontSize: 27, marginTop: 16 },
+  settingsScreen: { gap: 18 },
+  settingsTitle: { color: colors.ink, fontFamily: 'Baskerville', fontSize: 36 },
+  settingsBackButton: { alignSelf: 'flex-start', justifyContent: 'center', minHeight: 42, paddingHorizontal: 4 },
+  settingsCard: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 20, borderWidth: 1, padding: 24 },
   profileLabel: { color: colors.olive, fontSize: 17, fontWeight: '600', marginTop: 16 },
   profileHint: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 10 },
   secondaryButton: { alignItems: 'center', alignSelf: 'flex-start', borderColor: colors.olive, borderRadius: 12, borderWidth: 1, justifyContent: 'center', marginTop: 16, minHeight: 48, paddingHorizontal: 20 },

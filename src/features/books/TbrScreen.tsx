@@ -11,6 +11,7 @@ import {
 
 import type { BookCatalog, BookDraft, TbrBook, TbrRepository } from '../../books/bookTypes';
 import { journalColors as colors } from '../../theme/colors';
+import { pickBookImage } from './pickBookImage';
 
 interface TbrScreenProps {
   catalog: BookCatalog;
@@ -46,11 +47,9 @@ const emptyBook: BookDraft = {
 export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }: TbrScreenProps) {
   const [books, setBooks] = useState<TbrBook[]>([]);
   const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
-  const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingCategoryColor, setIsSavingCategoryColor] = useState(false);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<BookDraft[]>([]);
   const [searchMessage, setSearchMessage] = useState<string | null>(null);
@@ -91,7 +90,7 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
       if (results.length === 0) setSearchMessage('No matches found. Add the book manually instead.');
     } catch {
       setSearchResults([]);
-      setSearchMessage('Google Books is unavailable right now. You can still add a book manually.');
+      setSearchMessage('Book catalogs are unavailable right now. You can still add a book manually.');
     } finally {
       setIsSearching(false);
     }
@@ -122,19 +121,6 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
       setBooks((currentBooks) => currentBooks.filter((book) => book.id !== bookId));
     } catch {
       setListMessage('The book could not be removed from TBR. Try again.');
-    }
-  }
-
-  async function changeCategoryColor(category: string, color: string) {
-    setIsSavingCategoryColor(true);
-    setListMessage(null);
-    try {
-      await repository.setCategoryColor(category, color);
-      setCategoryColors((current) => ({ ...current, [categoryKey(category)]: color }));
-    } catch {
-      setListMessage(`The ${category} color could not be saved. Try again.`);
-    } finally {
-      setIsSavingCategoryColor(false);
     }
   }
 
@@ -194,7 +180,7 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Search Google Books"
+          accessibilityLabel="Search book catalogs"
           disabled={isSearching || isSaving}
           onPress={() => void searchCatalog()}
           style={styles.primaryButton}
@@ -268,7 +254,15 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
           <Text style={styles.bookMetadata}>Loading your books…</Text>
         </View>
       ) : books.length === 0 ? (
-        <Text style={styles.emptyState}>Your list is empty. Search for a book or add one manually.</Text>
+        <View style={styles.tbrPaper}>
+          <Text style={styles.emptyPadHint}>Your list is empty. Search for a book or add one manually.</Text>
+          {Array.from({ length: 7 }, (_, index) => (
+            <View key={index} style={styles.emptyPadEntry}>
+              <Text style={styles.emptyPadHeart}>♡</Text>
+              <View style={styles.emptyPadRule} />
+            </View>
+          ))}
+        </View>
       ) : (
         <View testID="tbr-list" style={styles.tbrPaper}>
           {books.map((book, index) => (
@@ -325,37 +319,12 @@ export function TbrScreen({ catalog, onBooksChanged, refreshToken, repository }:
           ))}
           <View accessibilityLabel="Book category color key" style={styles.categoryLegend}>
             {getListCategories(books).map((category) => (
-              <Pressable
-                key={category}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit color for ${category}`}
-                accessibilityState={{ selected: editingCategory === category }}
-                onPress={() => setEditingCategory((current) => current === category ? null : category)}
-                style={[styles.categoryLegendItem, editingCategory === category && styles.selectedCategoryLegendItem]}
-              >
+              <View key={category} style={styles.categoryLegendItem}>
                 <Text style={[styles.legendHeart, { color: colorForCategory(category, categoryColors) }]}>♥</Text>
                 <Text style={styles.legendLabel}>{category}</Text>
-              </Pressable>
+              </View>
             ))}
           </View>
-          {editingCategory ? (
-            <View style={styles.categoryColorEditor}>
-              <Text style={styles.categoryColorHeading}>Color for {editingCategory}</Text>
-              <View style={styles.categoryColorChoices}>
-                {[...new Set([colorForCategory(editingCategory, categoryColors), ...categoryPalette])].map((color) => (
-                  <Pressable
-                    key={color}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Set ${editingCategory} color to ${color}`}
-                    accessibilityState={{ selected: colorForCategory(editingCategory, categoryColors) === color }}
-                    disabled={isSavingCategoryColor}
-                    onPress={() => void changeCategoryColor(editingCategory, color)}
-                    style={[styles.categoryColorSwatch, { backgroundColor: color }, colorForCategory(editingCategory, categoryColors) === color && styles.selectedCategoryColorSwatch]}
-                  />
-                ))}
-              </View>
-            </View>
-          ) : null}
         </View>
       )}
     </View>
@@ -371,6 +340,15 @@ function BookEditor({ initialBook, isSaving, mode, onCancel, onSave }: BookEdito
   const [pageCount, setPageCount] = useState(initialBook.pageCount?.toString() ?? '');
   const [description, setDescription] = useState(initialBook.description ?? '');
   const [error, setError] = useState<string | null>(null);
+
+  async function chooseCover() {
+    try {
+      const image = await pickBookImage();
+      if (image) setCoverUrl(image);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The cover image could not be opened.');
+    }
+  }
 
   function submit() {
     const normalizedTitle = title.trim();
@@ -403,7 +381,11 @@ function BookEditor({ initialBook, isSaving, mode, onCancel, onSave }: BookEdito
       <EditorField label="Authors" value={authors} onChangeText={setAuthors} placeholder="Separate names with commas" />
       <EditorField label="Categories" value={categories} onChangeText={setCategories} placeholder="Separate categories with commas" />
       <EditorField label="Page count" value={pageCount} onChangeText={setPageCount} keyboardType="number-pad" />
-      <EditorField label="Cover image URL" value={coverUrl} onChangeText={setCoverUrl} keyboardType="url" />
+      <Text style={styles.fieldLabel}>Book cover · JPG, JPEG, or PNG</Text>
+      <BookCover book={{ ...initialBook, title, coverUrl: coverUrl || null }} />
+      <Pressable accessibilityRole="button" disabled={isSaving} onPress={() => void chooseCover()} style={styles.manualButton}>
+        <Text style={styles.manualButtonText}>{coverUrl ? 'Choose a different cover image' : 'Upload cover image'}</Text>
+      </Pressable>
       <EditorField label="Description" value={description} onChangeText={setDescription} multiline />
       {error ? <Text accessibilityRole="alert" style={styles.message}>{error}</Text> : null}
       <View style={styles.actionRow}>
@@ -414,6 +396,68 @@ function BookEditor({ initialBook, isSaving, mode, onCancel, onSave }: BookEdito
           <Text style={styles.manualButtonText}>Cancel</Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+export function TbrCategorySettings({ repository, onCategoriesChanged }: { repository: TbrRepository; onCategoriesChanged(): void }) {
+  const [categories, setCategories] = useState<string[]>([]);
+  const [categoryColors, setCategoryColors] = useState<Record<string, string>>({});
+  const [isSavingCategory, setIsSavingCategory] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [books, savedColors] = await Promise.all([repository.list(), repository.listCategoryColors()]);
+      setCategories(getListCategories(books));
+      setCategoryColors(savedColors);
+      setMessage(null);
+    } catch {
+      setMessage('Book category colors could not be loaded. Try again.');
+    }
+  }, [repository]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function saveColor(category: string, color: string) {
+    setIsSavingCategory(category);
+    setMessage(null);
+    try {
+      await repository.setCategoryColor(category, color);
+      setCategoryColors((current) => ({ ...current, [categoryKey(category)]: color }));
+      onCategoriesChanged();
+    } catch {
+      setMessage(`The ${category} color could not be saved.`);
+    } finally {
+      setIsSavingCategory(null);
+    }
+  }
+
+  return (
+    <View style={styles.editor} testID="tbr-category-settings">
+      <Text style={styles.listTitle}>Book category colors</Text>
+      <Text style={styles.bookMetadata}>Choose the heart color shown beside each TBR category.</Text>
+      {categories.length === 0 ? <Text style={styles.bookMetadata}>Add a Book with a category to customize its color.</Text> : null}
+      {categories.map((category) => (
+        <View key={category} style={styles.categorySettingsRow}>
+          <Text style={[styles.legendHeart, { color: colorForCategory(category, categoryColors) }]}>♥</Text>
+          <Text style={styles.legendLabel}>{category}</Text>
+          <View style={styles.categoryColorChoices}>
+            {[...new Set([colorForCategory(category, categoryColors), ...categoryPalette])].map((color) => (
+              <Pressable
+                key={color}
+                accessibilityRole="button"
+                accessibilityLabel={`Set ${category} color to ${color}`}
+                accessibilityState={{ selected: colorForCategory(category, categoryColors) === color }}
+                disabled={isSavingCategory !== null}
+                onPress={() => void saveColor(category, color)}
+                style={[styles.categoryColorSwatch, { backgroundColor: color }, colorForCategory(category, categoryColors) === color && styles.selectedCategoryColorSwatch]}
+              />
+            ))}
+          </View>
+        </View>
+      ))}
+      {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
     </View>
   );
 }
@@ -501,10 +545,10 @@ function splitValues(value: string): string[] {
 }
 
 const styles = StyleSheet.create({
-  container: { marginTop: 24 },
-  sectionTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 27 },
-  sectionHint: { color: colors.muted, fontSize: 14, marginTop: 6 },
-  searchRow: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 18 },
+  container: { marginTop: 20 },
+  sectionTitle: { color: colors.ink, fontFamily: 'Baskerville', fontSize: 40, textAlign: 'center' },
+  sectionHint: { color: colors.muted, fontSize: 14, marginTop: 6, textAlign: 'center' },
+  searchRow: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 24 },
   searchInput: { flex: 1 },
   input: {
     backgroundColor: colors.panel,
@@ -522,7 +566,7 @@ const styles = StyleSheet.create({
   manualButtonText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
   message: { color: colors.error, fontSize: 13, lineHeight: 19, marginTop: 10 },
   resultsSection: { marginTop: 20 },
-  listTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 21, marginBottom: 10, marginTop: 22 },
+  listTitle: { color: colors.ink, fontFamily: 'Baskerville', fontSize: 23, marginBottom: 10, marginTop: 22 },
   bookCard: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 16, borderWidth: 1, flexDirection: 'row', gap: 14, marginBottom: 12, padding: 12 },
   cover: { backgroundColor: colors.pale, borderColor: colors.line, borderRadius: 8, borderWidth: 1, height: 112, width: 76 },
   coverPlaceholder: { alignItems: 'center', justifyContent: 'center' },
@@ -531,20 +575,25 @@ const styles = StyleSheet.create({
   bookTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 17, lineHeight: 22 },
   bookAuthors: { color: colors.ink, fontSize: 14, marginTop: 5 },
   bookMetadata: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
-  tbrPaper: { backgroundColor: '#FFF9E7', borderRadius: 24, marginBottom: 18, marginTop: 4, paddingHorizontal: 16, paddingVertical: 10 },
+  tbrPaper: { alignSelf: 'center', backgroundColor: '#FFF9E7', borderColor: '#EEE6CE', borderRadius: 24, borderWidth: 1, marginBottom: 18, marginTop: 4, maxWidth: 820, paddingHorizontal: 24, paddingVertical: 16, width: '100%' },
+  emptyPadHint: { color: colors.muted, fontSize: 13, lineHeight: 19, marginBottom: 4, textAlign: 'center' },
+  emptyPadEntry: { alignItems: 'center', flexDirection: 'row', gap: 10, minHeight: 38 },
+  emptyPadHeart: { color: '#AAA48F', fontSize: 23, textAlign: 'center', width: 26 },
+  emptyPadRule: { borderBottomColor: '#A7A28E', borderBottomWidth: StyleSheet.hairlineWidth, flex: 1, height: 20 },
   tbrEntry: { alignItems: 'flex-start', flexDirection: 'row', gap: 10, paddingTop: 14 },
-  heartMarker: { fontSize: 28, lineHeight: 32, marginTop: 1, width: 28 },
+  heartMarker: { fontSize: 25, lineHeight: 32, marginTop: 1, textAlign: 'center', width: 26 },
   tbrEntryContent: { flex: 1, minWidth: 0 },
   tbrActions: { marginTop: 8 },
-  ruledLine: { borderBottomColor: colors.muted, borderBottomWidth: StyleSheet.hairlineWidth, marginTop: 8 },
-  categoryLegend: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 8, paddingTop: 16 },
+  ruledLine: { borderBottomColor: '#A7A28E', borderBottomWidth: StyleSheet.hairlineWidth, marginTop: 11 },
+  categoryLegend: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 14, justifyContent: 'center', paddingBottom: 8, paddingTop: 22 },
   categoryLegendItem: { alignItems: 'center', flexDirection: 'row', gap: 4, maxWidth: '100%' },
   selectedCategoryLegendItem: { backgroundColor: '#F0EDDF', borderRadius: 8, paddingHorizontal: 4 },
-  legendHeart: { fontSize: 17, lineHeight: 20 },
+  legendHeart: { fontSize: 20, lineHeight: 22 },
   legendLabel: { color: colors.ink, fontSize: 12 },
   categoryColorEditor: { borderTopColor: colors.line, borderTopWidth: StyleSheet.hairlineWidth, marginBottom: 8, marginTop: 8, paddingTop: 10 },
   categoryColorHeading: { color: colors.muted, fontSize: 12, marginBottom: 8 },
   categoryColorChoices: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  categorySettingsRow: { alignItems: 'center', borderBottomColor: colors.line, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', flexWrap: 'wrap', gap: 9, paddingVertical: 12 },
   categoryColorSwatch: { borderColor: colors.line, borderRadius: 14, borderWidth: 1, height: 28, width: 28 },
   selectedCategoryColorSwatch: { borderColor: colors.ink, borderWidth: 3 },
   smallButton: { alignItems: 'center', backgroundColor: colors.paper, borderColor: colors.line, borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 44, minWidth: 40, paddingHorizontal: 10 },
@@ -557,5 +606,4 @@ const styles = StyleSheet.create({
   fieldLabel: { color: colors.ink, fontSize: 13, fontWeight: '600', marginBottom: 6 },
   multilineInput: { minHeight: 88, paddingTop: 12, textAlignVertical: 'top' },
   loading: { alignItems: 'center', flexDirection: 'row', gap: 10, paddingVertical: 18 },
-  emptyState: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 16, borderWidth: 1, color: colors.muted, fontSize: 14, lineHeight: 20, marginBottom: 18, padding: 18 },
 });

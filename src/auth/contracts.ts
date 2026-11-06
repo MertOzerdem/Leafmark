@@ -18,8 +18,10 @@ export interface ReaderProfile {
   subject: string;
   username: string;
   privateLabel: string;
+  avatarDataUrl: string | null;
 }
 
 export interface ReaderProfileRepository {
   loadOrCreate(identity: AuthIdentity): Promise<ReaderProfile>;
+  saveAvatar(subject: string, avatarDataUrl: string | null): Promise<void>;
 }

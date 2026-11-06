@@ -1,4 +1,4 @@
-import type { Book } from '../books/bookTypes';
+import type { Book, BookDraft } from '../books/bookTypes';
 
 export type ReadingMeasure = 'minutes' | 'pages' | 'chapters';
 
@@ -72,9 +72,19 @@ export interface ReadingLogDraft {
   amount: number;
 }
 
+export interface FinishedBookDraft {
+  book: BookDraft;
+  startedOn: string;
+  finishedOn: string;
+  rating: number;
+  measure: ReadingMeasure;
+  totalAmount: number | null;
+}
+
 export interface ReadingRepository {
   loadSnapshot(year: number): Promise<ReadingSnapshot>;
   loadReadBooks(): Promise<ReadBook[]>;
+  addFinishedBook(draft: FinishedBookDraft): Promise<Book>;
   saveConfiguration(configuration: ReadingConfigurationDraft): Promise<void>;
   updateCategoryColor(position: number, color: string): Promise<void>;
   startBook(bookId: string, startedOn: string): Promise<void>;

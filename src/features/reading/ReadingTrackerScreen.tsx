@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -21,11 +22,13 @@ import type {
 } from '../../reading/readingTypes';
 import { isValidStarRating } from '../../reading/readingTypes';
 import { isValidReadingDate, padDatePart, todayDate } from '../../reading/readingDates';
+import { RatingStars } from '../books/RatingStars';
 
 interface ReadingTrackerScreenProps {
   repository: ReadingRepository;
   refreshToken: number;
   onBookFinished(): void;
+  view?: 'tracker' | 'settings';
 }
 
 const categoryPalette = ['#EFE4E7', '#D7B5C0', '#B98598', '#896878', '#5A4351'];
@@ -43,7 +46,7 @@ const emptySnapshot: ReadingSnapshot = {
   usedConfigurationIds: [],
 };
 
-export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository }: ReadingTrackerScreenProps) {
+export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository, view = 'tracker' }: ReadingTrackerScreenProps) {
   const [year, setYear] = useState(2027);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
@@ -348,12 +351,57 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
     return buildCalendarDays(year, monthNumber, snapshot.logs, snapshot.attempts, snapshot.configurations);
   }, [selectedCalendarDate, snapshot.attempts, snapshot.configurations, snapshot.logs, year]);
   const selectedDay = selectedCalendarDate ? selectedDateDays[Number(selectedCalendarDate.slice(8, 10)) - 1] ?? null : null;
+  const annualLog = (
+    <View style={styles.yearPosterPanel}>
+      <View style={styles.yearHeading}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Previous year" onPress={() => setYear((value) => value - 1)} style={styles.yearButton}>
+          <Text style={styles.yearButtonText}>‹</Text>
+        </Pressable>
+        <View style={styles.yearTitleBlock}>
+          <Text style={styles.yearPosterTitle}>{year} Reading Log</Text>
+          <Text style={styles.yearSummary}>{yearStats.uniqueBooks} unique Books · {yearStats.attempts} finished Reading attempts · {yearStats.rereads} rereads</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Next year" onPress={() => setYear((value) => value + 1)} style={styles.yearButton}>
+          <Text style={styles.yearButtonText}>›</Text>
+        </Pressable>
+      </View>
+      {selectedMonth === null ? (
+        <AnnualReadingGrid
+          year={year}
+          totals={totalByDate}
+          attempts={snapshot.attempts}
+          onSelectDate={selectCalendarDate}
+          onSelectMonth={(month) => { setSelectedMonth(month); setSelectedCalendarDate(null); }}
+        />
+      ) : (
+        <View testID="month-reading-view">
+          <View style={styles.monthHeading}>
+            <Pressable accessibilityRole="button" onPress={() => { setSelectedMonth(null); setSelectedCalendarDate(null); }} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>‹ {year} at a glance</Text>
+            </Pressable>
+            <Text style={styles.sectionTitle}>{months[selectedMonth - 1]} {year}</Text>
+          </View>
+          <MonthDetailCalendar days={monthDays} onSelectDate={selectCalendarDate} />
+        </View>
+      )}
+      {selectedDay ? <CalendarDayDetail day={selectedDay} onEditLog={editLog} onClose={() => setSelectedCalendarDate(null)} /> : null}
+      {configurationForDate ? (
+        <View style={styles.legend} accessibilityLabel="Reading category legend">
+          {configurationForDate.categories.map((category) => (
+            <View key={category.position} style={styles.legendItem}>
+              <View style={[styles.legendSwatch, { backgroundColor: category.color }]} />
+              <Text style={styles.legendLabel}>{formatCategory(category, configurationForDate.measure)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : <Text style={styles.helpText}>Save reading settings to see the activity color key.</Text>}
+    </View>
+  );
   return (
     <View style={styles.container}>
-      <Text style={styles.pageTitle}>{year} Reading Log</Text>
-      <Text style={styles.pageIntro}>Keep one daily total for each Book and Reading attempt.</Text>
+      {view === 'tracker' ? annualLog : null}
 
-      <View style={styles.sectionPanel}>
+      {view === 'settings' ? <View style={styles.sectionPanel}>
         <Text style={styles.sectionTitle}>Reading settings</Text>
         <Text style={styles.fieldLabel}>Primary Reading measure</Text>
         <View style={styles.buttonRow}>
@@ -452,8 +500,9 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
           </Pressable>
         </View>
         {rangesLocked ? <Text style={styles.helpText}>Used ranges stay fixed. Change the measure to create a new baseline; category colors remain editable.</Text> : null}
-      </View>
+      </View> : null}
 
+      {view === 'tracker' ? <>
       <View style={styles.sectionPanel}>
         <Text style={styles.sectionTitle}>Current book</Text>
         {snapshot.currentAttempt ? (
@@ -495,7 +544,7 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
                       onPress={() => setFinishRating(rating)}
                       style={[styles.ratingChoice, finishRating === rating && styles.selectedChoice]}
                     >
-                      <Text style={styles.ratingText}>{starsForRating(rating)}</Text>
+                      <RatingStars rating={rating} size={18} />
                     </Pressable>
                   ))}
                 </View>
@@ -598,58 +647,8 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
           </Pressable>
         ) : null}
       </View>
-
       {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
       {isLoading ? <ActivityIndicator color={colors.olive} style={styles.loader} /> : null}
-
-      <View style={styles.sectionPanel}>
-        <View style={styles.yearHeading}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Previous year" onPress={() => setYear((value) => value - 1)} style={styles.yearButton}>
-            <Text style={styles.yearButtonText}>‹</Text>
-          </Pressable>
-          <Text style={styles.sectionTitle}>{year} at a glance</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Next year" onPress={() => setYear((value) => value + 1)} style={styles.yearButton}>
-            <Text style={styles.yearButtonText}>›</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.yearSummary}>{yearStats.uniqueBooks} unique Books · {yearStats.attempts} finished Reading attempts · {yearStats.rereads} rereads</Text>
-        {selectedMonth === null ? (
-          <AnnualReadingGrid
-            year={year}
-            totals={totalByDate}
-            attempts={snapshot.attempts}
-            onSelectDate={selectCalendarDate}
-            onSelectMonth={(month) => { setSelectedMonth(month); setSelectedCalendarDate(null); }}
-          />
-        ) : (
-          <View testID="month-reading-view">
-            <View style={styles.monthHeading}>
-              <Pressable accessibilityRole="button" onPress={() => { setSelectedMonth(null); setSelectedCalendarDate(null); }} style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>‹ {year} at a glance</Text>
-              </Pressable>
-              <Text style={styles.sectionTitle}>{months[selectedMonth - 1]} {year}</Text>
-            </View>
-            <MonthDetailCalendar
-              days={monthDays}
-              year={year}
-              month={selectedMonth}
-              onSelectDate={selectCalendarDate}
-            />
-          </View>
-        )}
-        {selectedDay ? <CalendarDayDetail day={selectedDay} onEditLog={editLog} onClose={() => setSelectedCalendarDate(null)} /> : null}
-        {configurationForDate ? (
-          <View style={styles.legend} accessibilityLabel="Reading category legend">
-            {configurationForDate.categories.map((category) => (
-              <View key={category.position} style={styles.legendItem}>
-                <View style={[styles.legendSwatch, { backgroundColor: category.color }]} />
-                <Text style={styles.legendLabel}>{formatCategory(category, configurationForDate.measure)}</Text>
-              </View>
-            ))}
-          </View>
-        ) : <Text style={styles.helpText}>Save reading settings to see the activity color key.</Text>}
-      </View>
-
       <View style={styles.sectionPanel}>
         <Text style={styles.sectionTitle}>Daily totals · {year}</Text>
         {snapshot.logs.length === 0 ? <Text style={styles.helpText}>No Reading logs for this year yet.</Text> : snapshot.logs.map((log) => (
@@ -661,34 +660,34 @@ export function ReadingTrackerScreen({ onBookFinished, refreshToken, repository 
           </View>
         ))}
       </View>
+      </> : <>
+        {message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}
+        {isLoading ? <ActivityIndicator color={colors.olive} style={styles.loader} /> : null}
+      </>}
     </View>
   );
 }
 
 function MonthDetailCalendar({
   days,
-  month,
   onSelectDate,
-  year,
 }: {
   days: CalendarDay[];
-  month: number;
   onSelectDate(date: string): void;
-  year: number;
 }) {
-  const offset = new Date(year, month - 1, 1).getDay();
-  const cellCount = Math.ceil((offset + daysInCalendarMonth(year, month)) / 7) * 7;
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const { width: viewportWidth } = useWindowDimensions();
+  const size = Math.min(620, Math.max(300, viewportWidth - 150));
+  const center = size / 2;
+  const radius = size * 0.35;
+  const cellSize = Math.max(28, Math.min(40, (Math.PI * 2 * radius / days.length) * 0.78));
 
   return (
-    <View testID="month-calendar" style={styles.monthCalendar}>
-      <View style={styles.weekHeader}>
-        {weekDays.map((day) => <Text key={day} style={styles.weekDay}>{day}</Text>)}
-      </View>
-      <View style={styles.monthGrid}>
-        {Array.from({ length: cellCount }, (_, cellIndex) => {
-          const day = days[cellIndex - offset];
-          if (!day) return <View key={`blank-${cellIndex}`} style={styles.monthDayCell} />;
+    <View testID="month-calendar" style={[styles.monthCalendar, { height: size, width: size }]}>
+      {days.map((day, index) => {
+        const angle = (index / days.length) * 360 - 90;
+        const radians = angle * Math.PI / 180;
+        const left = center + radius * Math.cos(radians) - cellSize / 2;
+        const top = center + radius * Math.sin(radians) - cellSize / 2;
           const eventLabel = [
             ...day.starts.map((attempt) => `started ${attempt.bookTitle}`),
             ...day.finishes.map((attempt) => `finished ${attempt.bookTitle}`),
@@ -702,14 +701,24 @@ function MonthDetailCalendar({
               accessibilityRole="button"
               accessibilityLabel={`${day.date}${totalLabel ? `, ${totalLabel}` : ', no reading total'}${eventLabel.length ? `, ${eventLabel.join(', ')}` : ''}`}
               onPress={() => onSelectDate(day.date)}
-              style={[styles.monthDayCell, day.color ? { backgroundColor: day.color } : styles.monthDayEmpty]}
+              style={[
+                styles.monthDayCell,
+                { height: cellSize, left, top, width: cellSize },
+                day.color ? { backgroundColor: day.color } : styles.monthDayEmpty,
+              ]}
             >
               <Text style={styles.monthDayNumber}>{Number(day.date.slice(8, 10))}</Text>
-              {day.total > 0 ? <Text numberOfLines={1} style={styles.monthDayTotal}>{day.total} {day.measure === 'minutes' ? 'm' : day.measure === 'pages' ? 'p' : 'ch'}{day.totals.length > 1 ? '+' : ''}</Text> : null}
-              {eventLabel.length > 0 ? <Text style={styles.eventSymbols}>{day.starts.length ? '✦' : ''}{day.finishes.length ? '♛' : ''}</Text> : null}
+              {eventLabel.length > 0 ? <Text style={styles.eventSymbols}>{day.finishes.length ? '♛' : '✦'}</Text> : null}
             </Pressable>
           );
-        })}
+      })}
+      <View pointerEvents="none" style={[styles.monthCenter, { height: size * 0.38, width: size * 0.38 }]}>
+        <View style={styles.centerVine}><Text style={styles.centerLeaf}>❧</Text></View>
+        <View style={styles.centerBookStack}>
+          <View style={[styles.centerBook, styles.centerBookTop]} />
+          <View style={[styles.centerBook, styles.centerBookMiddle]} />
+          <View style={[styles.centerBook, styles.centerBookBottom]} />
+        </View>
       </View>
     </View>
   );
@@ -752,11 +761,11 @@ function AnnualReadingGrid({
 }) {
   return (
     <View testID="annual-reading-grid" style={styles.calendar}>
-      <View style={styles.calendarRow}>
+      <View style={[styles.calendarRow, styles.calendarHeaderRow]}>
         <View style={styles.dayNumberCell} />
         {months.map((month, index) => (
           <Pressable key={month} accessibilityRole="button" accessibilityLabel={`Open ${month} ${year}`} onPress={() => onSelectMonth(index + 1)} style={styles.monthHeaderButton}>
-            <Text style={styles.monthHeader}>{month.slice(0, 3)}</Text>
+            <Text style={styles.monthHeader}>{month}</Text>
           </Pressable>
         ))}
       </View>
@@ -768,6 +777,7 @@ function AnnualReadingGrid({
             {months.map((month, monthIndex) => {
               const date = `${year}-${padDatePart(monthIndex + 1)}-${padDatePart(day)}`;
               const isValidDay = day <= daysInMonth(year, monthIndex);
+              if (!isValidDay) return <View key={month} style={styles.calendarDay} />;
               const activity = isValidDay ? totals.get(date) : undefined;
               const starts = isValidDay ? attempts.some((attempt) => attempt.startedOn === date) : false;
               const finishes = isValidDay ? attempts.some((attempt) => attempt.finishedOn === date) : false;
@@ -779,7 +789,6 @@ function AnnualReadingGrid({
                   key={month}
                   accessibilityRole="button"
                   accessibilityLabel={label}
-                  disabled={!isValidDay}
                   onPress={() => onSelectDate(date)}
                   style={styles.calendarDay}
                 >
@@ -893,16 +902,12 @@ function capitalize(value: string): string {
   return `${value[0].toUpperCase()}${value.slice(1)}`;
 }
 
-function starsForRating(rating: number): string {
-  const wholeStars = Math.floor(rating);
-  return `${'★'.repeat(wholeStars)}${rating % 1 === 0.5 ? '½' : ''}`;
-}
-
 const styles = StyleSheet.create({
-  container: { marginTop: 30 },
-  pageTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 30 },
-  pageIntro: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 5 },
+  container: { marginTop: 22 },
   sectionPanel: { backgroundColor: '#FFFCF2', borderColor: colors.line, borderRadius: 20, borderWidth: 1, marginTop: 18, padding: 18 },
+  yearPosterPanel: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 6, borderWidth: 1, marginTop: 22, overflow: 'hidden', paddingBottom: 20, paddingHorizontal: 14, paddingTop: 20 },
+  yearTitleBlock: { alignItems: 'center', flex: 1, paddingHorizontal: 8 },
+  yearPosterTitle: { color: colors.ink, fontFamily: 'Baskerville', fontSize: 38, textAlign: 'center' },
   sectionTitle: { color: colors.ink, fontFamily: 'Georgia', fontSize: 21 },
   currentBookTitle: { color: colors.olive, fontFamily: 'Georgia', fontSize: 18, marginTop: 12 },
   fieldLabel: { color: colors.ink, fontSize: 13, fontWeight: '600', marginBottom: 7, marginTop: 15 },
@@ -943,30 +948,35 @@ const styles = StyleSheet.create({
   cancelButton: { alignSelf: 'flex-start', marginTop: 8, minHeight: 40, justifyContent: 'center', paddingHorizontal: 8 },
   message: { color: colors.error, fontSize: 13, lineHeight: 19, marginTop: 10 },
   loader: { marginVertical: 16 },
-  yearHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-  yearSummary: { color: colors.muted, fontSize: 12, marginBottom: 10 },
-  monthHeading: { gap: 8, marginBottom: 10 },
-  monthCalendar: { backgroundColor: colors.panel, borderColor: colors.line, borderRadius: 12, borderWidth: 1, overflow: 'hidden', padding: 8 },
-  weekHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  weekDay: { color: colors.muted, fontSize: 11, paddingVertical: 7, textAlign: 'center', width: '14.28%' },
-  monthGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  monthDayCell: { alignItems: 'center', borderColor: '#E4E1D5', borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, height: 74, justifyContent: 'flex-start', paddingTop: 5, width: '14.28%' },
-  monthDayEmpty: { backgroundColor: '#F8F6EE' },
-  monthDayNumber: { color: colors.ink, fontSize: 12, fontWeight: '700' },
-  monthDayTotal: { color: colors.ink, fontSize: 9, marginTop: 4, textAlign: 'center' },
-  eventSymbols: { color: '#725D42', fontSize: 11, marginTop: 3 },
+  yearHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 },
+  yearSummary: { color: colors.muted, fontSize: 12, lineHeight: 18, marginBottom: 4, marginTop: 7, textAlign: 'center' },
+  monthHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  monthCalendar: { alignSelf: 'center', position: 'relative' },
+  monthDayCell: { alignItems: 'center', borderColor: '#C7BEA9', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, justifyContent: 'center', position: 'absolute' },
+  monthDayEmpty: { backgroundColor: '#FFFDF6' },
+  monthDayNumber: { color: colors.ink, fontSize: 11, fontWeight: '600' },
+  eventSymbols: { color: '#725D42', fontSize: 9, position: 'absolute', right: 2, top: 2 },
+  monthCenter: { alignItems: 'center', backgroundColor: colors.paper, borderRadius: 999, justifyContent: 'center', left: '31%', position: 'absolute', top: '31%' },
+  centerVine: { left: '62%', position: 'absolute', top: '8%' },
+  centerLeaf: { color: '#9B9E7D', fontFamily: 'Georgia', fontSize: 54 },
+  centerBookStack: { alignItems: 'center', height: 86, justifyContent: 'flex-end', width: 150 },
+  centerBook: { borderColor: '#827A63', borderRadius: 4, borderWidth: 1.3, height: 23, position: 'absolute' },
+  centerBookTop: { backgroundColor: '#F4EAD6', bottom: 54, transform: [{ rotate: '-6deg' }], width: 104 },
+  centerBookMiddle: { backgroundColor: '#E7E5D8', bottom: 30, transform: [{ rotate: '4deg' }], width: 128 },
+  centerBookBottom: { backgroundColor: '#ECE2D2', bottom: 6, transform: [{ rotate: '-2deg' }], width: 142 },
   dayDetail: { backgroundColor: '#FFFCF2', borderColor: colors.line, borderRadius: 14, borderWidth: 1, marginTop: 12, padding: 12 },
   dayDetailHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   calendarEvent: { color: colors.olive, fontSize: 13, marginTop: 8 },
-  monthHeaderButton: { alignItems: 'center', justifyContent: 'center', width: 23 },
+  monthHeaderButton: { alignItems: 'center', height: 104, justifyContent: 'center', width: 26 },
   yearButton: { alignItems: 'center', borderColor: colors.line, borderRadius: 12, borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
   yearButtonText: { color: colors.ink, fontSize: 25, lineHeight: 28 },
-  calendar: { alignSelf: 'flex-start', borderColor: colors.line, borderRadius: 10, borderWidth: 1, maxWidth: '100%', overflow: 'hidden', paddingBottom: 6, paddingHorizontal: 4, paddingTop: 5 },
-  calendarRow: { alignItems: 'center', flexDirection: 'row', height: 22 },
+  calendar: { alignSelf: 'center', maxWidth: '100%', overflow: 'hidden', paddingBottom: 6, paddingHorizontal: 4, paddingTop: 5 },
+  calendarRow: { alignItems: 'center', flexDirection: 'row', height: 21 },
+  calendarHeaderRow: { height: 108, alignItems: 'flex-end' },
   dayNumberCell: { color: colors.muted, fontSize: 9, textAlign: 'right', width: 19 },
-  monthHeader: { color: colors.ink, fontSize: 9, textAlign: 'center', width: 23 },
-  calendarDay: { alignItems: 'center', height: 21, justifyContent: 'center', width: 23 },
-  calendarHeart: { color: '#D6D1C2', fontSize: 13, lineHeight: 16 },
+  monthHeader: { color: colors.ink, fontSize: 9, position: 'absolute', textAlign: 'center', transform: [{ rotate: '-90deg' }], width: 86 },
+  calendarDay: { alignItems: 'center', height: 21, justifyContent: 'center', width: 26 },
+  calendarHeart: { color: '#D6D1C2', fontSize: 15, lineHeight: 18 },
   annualDayCell: { alignItems: 'center', flexDirection: 'row' },
   annualEventSymbol: { color: colors.ink, fontSize: 6, marginLeft: -4 },
   additionalTotals: { color: colors.ink, fontSize: 8, marginLeft: -5 },

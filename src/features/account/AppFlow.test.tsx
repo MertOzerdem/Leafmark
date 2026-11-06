@@ -17,6 +17,7 @@ import type {
   ReadingConfigurationDraft,
   ReadingLog,
   ReadingLogDraft,
+  FinishedBookDraft,
   ReadBook,
   ReadingRepository,
 } from '../../reading/readingTypes';
@@ -51,8 +52,10 @@ function TestApp({ initialIdentity = null, seedGardenInTbr = false, seedGardenCo
           subject: currentIdentity.subject,
           username: currentIdentity.username,
           privateLabel: `Local shelf for ${currentIdentity.username}`,
+          avatarDataUrl: null,
         };
       },
+      async saveAvatar() {},
     }),
     [],
   );
@@ -162,6 +165,25 @@ function createTestReadingRepository(bookStore: TestBookStore): ReadingRepositor
         const bookAttempts = attempts.filter((attempt) => attempt.bookId === book.id).map((attempt) => ({ ...attempt }));
         return bookAttempts.some((attempt) => attempt.finishedOn !== null) ? [{ book: { ...book }, attempts: bookAttempts }] : [];
       });
+    },
+    async addFinishedBook(draft: FinishedBookDraft) {
+      let book = bookStore.books.find((entry) => entry.title.trim().toLowerCase() === draft.book.title.trim().toLowerCase());
+      if (!book) {
+        book = { ...draft.book, id: `finished-${nextId++}` };
+        bookStore.books.push(book);
+      }
+      const current = currentAttempt?.bookId === book.id ? currentAttempt : null;
+      const attempt = current ? { ...current, startedOn: draft.startedOn, finishedOn: draft.finishedOn, rating: draft.rating, isCurrent: false } : {
+        ...createAttempt(`attempt-${nextId++}`, book.id, book.title, draft.startedOn),
+        finishedOn: draft.finishedOn,
+        rating: draft.rating,
+        isCurrent: false,
+      };
+      attempts = current ? attempts.map((entry) => entry.id === current.id ? attempt : entry) : [...attempts, attempt];
+      if (current) currentAttempt = null;
+      bookStore.tbrBookIds = bookStore.tbrBookIds.filter((id) => id !== book?.id);
+      if (!bookStore.shelfBookIds.includes(book.id)) bookStore.shelfBookIds.push(book.id);
+      return { ...book };
     },
     async saveConfiguration(draft: ReadingConfigurationDraft) {
       const configuration: ReadingConfiguration = {
@@ -403,9 +425,13 @@ describe('private account app flow', () => {
     await fireEvent.changeText(screen.getByLabelText('Confirm password'), 'correct horse battery');
     await fireEvent.press(screen.getByRole('button', { name: 'Create account' }));
 
-    await waitFor(() => expect(screen.getByText('Local shelf for reader-ivy')).toBeTruthy());
     expect(screen.getByText('Local account on this iPad · reader-ivy')).toBeTruthy();
+    expect(screen.queryByText('Local shelf for reader-ivy')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Open profile menu' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Settings' }));
+    await waitFor(() => expect(screen.getByText('Local account · reader-ivy')).toBeTruthy());
 
+    await fireEvent.press(screen.getByRole('button', { name: 'Open profile menu' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
 
     await waitFor(() => expect(screen.getByText('Your reading life, gathered in one place.')).toBeTruthy());
@@ -415,8 +441,11 @@ describe('private account app flow', () => {
   it('loads private profile data using the signed-in account identity', async () => {
     await render(<TestApp initialIdentity={{ subject: 'local:reader-sage', username: 'reader-sage' }} />);
 
-    await waitFor(() => expect(screen.getByText('Local shelf for reader-sage')).toBeTruthy());
     expect(screen.getByText('Local account on this iPad · reader-sage')).toBeTruthy();
+    expect(screen.queryByText('Local shelf for reader-sage')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Open profile menu' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Settings' }));
+    await waitFor(() => expect(screen.getByText('Local account · reader-sage')).toBeTruthy());
   });
 
   it('signs into an existing account with its username and password', async () => {
@@ -426,8 +455,11 @@ describe('private account app flow', () => {
     await fireEvent.changeText(screen.getByLabelText('Password'), 'reader password');
     await fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
 
-    await waitFor(() => expect(screen.getByText('Local shelf for reader-sage')).toBeTruthy());
     expect(screen.getByText('Local account on this iPad · reader-sage')).toBeTruthy();
+    expect(screen.queryByText('Local shelf for reader-sage')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Open profile menu' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Open Settings' }));
+    await waitFor(() => expect(screen.getByText('Local account · reader-sage')).toBeTruthy());
   });
 
   it('keeps the private app shell hidden while the auth session is unresolved', async () => {
@@ -437,7 +469,7 @@ describe('private account app flow', () => {
         signUp: jest.fn(),
         signOut: jest.fn(),
       };
-      const profiles: ReaderProfileRepository = { loadOrCreate: jest.fn() };
+      const profiles: ReaderProfileRepository = { loadOrCreate: jest.fn(), saveAvatar: jest.fn() };
       const catalog: BookCatalog = { search: jest.fn() };
       const tbr: TbrRepository = {
         list: jest.fn(),
@@ -451,6 +483,7 @@ describe('private account app flow', () => {
       const reading: ReadingRepository = {
         loadSnapshot: jest.fn(),
         loadReadBooks: jest.fn(),
+        addFinishedBook: jest.fn(),
         saveConfiguration: jest.fn(),
         updateCategoryColor: jest.fn(),
         startBook: jest.fn(),

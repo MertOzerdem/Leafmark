@@ -220,6 +220,7 @@ function decodeLocalState(value: unknown): SerializedLocalBookStore {
   if (!isRecord(value)
     || !Array.isArray(value.books)
     || !value.books.every(isBook)
+    || (value.avatarDataUrl !== undefined && (!isNullableString(value.avatarDataUrl) || (value.avatarDataUrl !== null && !value.avatarDataUrl.startsWith('data:image/'))))
     || !isStringArray(value.tbrBookIds)
     || !isStringRecord(value.categoryColors)
     || !isStringArray(value.shelfBookIds)

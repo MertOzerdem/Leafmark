@@ -4,6 +4,8 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { AuthActions, AuthIdentity, AuthSession } from './src/auth/contracts';
 import { createGoogleBooksCatalog } from './src/catalog/googleBooksCatalog';
+import { createOpenLibraryCatalog } from './src/catalog/openLibraryCatalog';
+import { createFallbackBookCatalog } from './src/catalog/fallbackBookCatalog';
 import {
   createIndexedLocalAuthActions,
   loadIndexedLocalRepositories,
@@ -89,7 +91,7 @@ export default function App() {
     () => createLocalRepositories(createEmptyLocalBookStore(), 'signed-out', async () => undefined),
     [],
   );
-  const catalog = useMemo(() => createGoogleBooksCatalog(), []);
+  const catalog = useMemo(() => createFallbackBookCatalog(createGoogleBooksCatalog(), createOpenLibraryCatalog()), []);
   const backupRepository = useMemo(() => database ? createLocalBackupRepository(database) : null, [database]);
   const backupControls = useMemo(() => backupRepository ? (
     <LocalBackupControls repository={backupRepository} onRestoreComplete={() => window.location.reload()} />

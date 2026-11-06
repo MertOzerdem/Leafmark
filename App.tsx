@@ -5,6 +5,8 @@ import { SQLiteProvider, useSQLiteContext } from 'expo-sqlite';
 
 import type { AuthIdentity, AuthSession } from './src/auth/contracts';
 import { createGoogleBooksCatalog } from './src/catalog/googleBooksCatalog';
+import { createOpenLibraryCatalog } from './src/catalog/openLibraryCatalog';
+import { createFallbackBookCatalog } from './src/catalog/fallbackBookCatalog';
 import { AppFlow } from './src/features/account/AppFlow';
 import {
   createEmptyLocalRepositories,
@@ -60,7 +62,7 @@ function LocalApp() {
   }, [database]);
 
   const auth = useMemo(() => createLocalAuthActions(database, activateAccount), [activateAccount, database]);
-  const catalog = useMemo(() => createGoogleBooksCatalog(), []);
+  const catalog = useMemo(() => createFallbackBookCatalog(createGoogleBooksCatalog(), createOpenLibraryCatalog()), []);
   const emptyRepositories = useMemo(
     () => createEmptyLocalRepositories('signed-out'),
     [],

@@ -14,17 +14,35 @@ const trailDots = [
 ];
 
 const foliageStems = [
-  { left: 8, height: 104, rotation: '-15deg' },
-  { left: 40, height: 132, rotation: '-4deg' },
-  { left: 76, height: 92, rotation: '12deg' },
+  { left: '0%', height: 105, rotation: '-16deg' },
+  { left: '6%', height: 146, rotation: '-8deg' },
+  { left: '13%', height: 122, rotation: '9deg' },
+  { left: '20%', height: 171, rotation: '-10deg' },
+  { left: '27%', height: 114, rotation: '8deg' },
+  { left: '34%', height: 156, rotation: '-7deg' },
+  { left: '41%', height: 128, rotation: '11deg' },
+  { left: '48%', height: 178, rotation: '-12deg' },
+  { left: '55%', height: 112, rotation: '8deg' },
+  { left: '62%', height: 152, rotation: '-9deg' },
+  { left: '69%', height: 126, rotation: '12deg' },
+  { left: '76%', height: 169, rotation: '-6deg' },
+  { left: '83%', height: 111, rotation: '10deg' },
+  { left: '89%', height: 154, rotation: '-8deg' },
+  { left: '95%', height: 132, rotation: '8deg' },
 ];
 
 const leaves = [
-  { left: 2, top: 18, rotation: '-40deg' },
-  { left: 8, top: 34, rotation: '38deg' },
-  { left: 0, top: 51, rotation: '-42deg' },
-  { left: 8, top: 69, rotation: '40deg' },
-  { left: 1, top: 86, rotation: '-37deg' },
+  { top: 15, rotation: '-43deg' },
+  { top: 29, rotation: '40deg' },
+  { top: 43, rotation: '-39deg' },
+  { top: 57, rotation: '42deg' },
+  { top: 71, rotation: '-40deg' },
+  { top: 85, rotation: '37deg' },
+  { top: 99, rotation: '-42deg' },
+  { top: 113, rotation: '40deg' },
+  { top: 127, rotation: '-39deg' },
+  { top: 141, rotation: '42deg' },
+  { top: 155, rotation: '-38deg' },
 ];
 
 export function JournalAccents() {
@@ -36,8 +54,7 @@ export function JournalAccents() {
         ))}
         <Butterfly />
       </View>
-      <Foliage style={styles.leftFoliage} />
-      <Foliage style={styles.rightFoliage} />
+      <Foliage style={styles.bottomFoliage} />
     </View>
   );
 }
@@ -62,13 +79,13 @@ function Foliage({ style }: { style: object }) {
           key={stem.left}
           style={[styles.stem, { height: stem.height, left: stem.left, transform: [{ rotate: stem.rotation }] }]}
         >
-          {leaves.map((leaf, index) => (
+          {leaves.filter((leaf) => leaf.top < stem.height).map((leaf, index) => (
             <View
-              key={index}
+              key={leaf.top}
               style={[
                 styles.leaf,
                 {
-                  left: index % 2 === 0 ? -8 : 1,
+                  left: index % 2 === 0 ? -7 : 1,
                   top: leaf.top,
                   transform: [{ rotate: leaf.rotation }],
                 },
@@ -82,7 +99,7 @@ function Foliage({ style }: { style: object }) {
 }
 
 const styles = StyleSheet.create({
-  butterflyTrail: { height: 125, position: 'absolute', right: 12, top: 18, width: 105 },
+  butterflyTrail: { height: 125, position: 'absolute', right: 12, top: 150, width: 105 },
   trailDot: {
     backgroundColor: '#898674',
     borderRadius: 2,
@@ -98,16 +115,15 @@ const styles = StyleSheet.create({
   lowerLeftWing: { height: 10, left: 4, top: 10, transform: [{ rotate: '28deg' }], width: 9 },
   lowerRightWing: { height: 10, right: 4, top: 10, transform: [{ rotate: '-28deg' }], width: 9 },
   butterflyBody: { backgroundColor: '#898674', borderRadius: 2, height: 17, left: 13, position: 'absolute', top: 4, width: 1.5 },
-  foliage: { bottom: -26, height: 160, opacity: 0.48, position: 'absolute', width: 130 },
-  leftFoliage: { left: -4 },
-  rightFoliage: { right: -18, transform: [{ scaleX: -1 }] },
+  foliage: { bottom: -30, height: 190, opacity: 0.55, position: 'absolute' },
+  bottomFoliage: { left: 0, right: 0, width: '100%' },
   stem: { backgroundColor: '#9DA086', bottom: 0, position: 'absolute', width: 1.5 },
   leaf: {
-    backgroundColor: '#E4E4D8',
+    backgroundColor: '#E4E4D855',
     borderColor: '#A5A68F',
     borderRadius: 10,
     borderWidth: 0.6,
-    height: 20,
+    height: 24,
     position: 'absolute',
     width: 8,
   },

@@ -11,6 +11,7 @@ import type {
   ReadingCategory,
   ReadingConfiguration,
   ReadingConfigurationDraft,
+  FinishedBookDraft,
   ReadingLog,
   ReadingLogDraft,
   ReadingRepository,
@@ -19,6 +20,7 @@ import type {
 
 export interface LocalBookStore {
   books: Book[];
+  avatarDataUrl: string | null;
   tbrBookIds: string[];
   categoryColors: Record<string, string>;
   shelfBookIds: string[];
@@ -45,6 +47,7 @@ export interface LocalRepositories {
 
 export function createEmptyLocalBookStore(): LocalBookStore {
   return {
+    avatarDataUrl: null,
     books: [],
     tbrBookIds: [],
     categoryColors: {},
@@ -76,13 +79,22 @@ export function createLocalRepositories(
           subject: identity.subject,
           username: identity.username,
           privateLabel: `Local shelf for ${identity.username}`,
+          avatarDataUrl: store.avatarDataUrl,
         };
+      },
+      async saveAvatar(subject: string, avatarDataUrl: string | null) {
+        if (subject !== ownerSubject) throw new Error('The profile belongs to another reader.');
+        if (avatarDataUrl !== null && !avatarDataUrl.startsWith('data:image/')) {
+          throw new Error('Choose an image file for your profile photo.');
+        }
+        store.avatarDataUrl = avatarDataUrl;
+        await persist();
       },
     },
     tbr: persistAfterWrites(createTbrRepository(store), ['setCategoryColor', 'add', 'update', 'remove', 'reorder'], persist),
     reading: persistAfterWrites(createReadingRepository(store), [
       'saveConfiguration', 'updateCategoryColor', 'startBook', 'startReread', 'finishAttempt',
-      'updateAttemptFinish', 'updateAttemptStart', 'updateAttemptReflection', 'saveDailyTotal',
+      'updateAttemptFinish', 'updateAttemptStart', 'updateAttemptReflection', 'saveDailyTotal', 'addFinishedBook',
     ], persist),
     bookPages: persistAfterWrites(createBookPageRepository(store, ownerSubject), [
       'addField', 'updateField', 'reorderFields', 'removeField', 'saveValue', 'uploadImage', 'deleteBookPage', 'updateBook',
@@ -149,6 +161,50 @@ function createReadingRepository(store: LocalBookStore): ReadingRepository {
         const attempts = store.attempts.filter((attempt) => attempt.bookId === book.id).map((attempt) => ({ ...attempt }));
         return attempts.some((attempt) => attempt.finishedOn !== null) ? [{ book: { ...book }, attempts }] : [];
       });
+    },
+    async addFinishedBook(draft: FinishedBookDraft) {
+      const { book: bookDraft, finishedOn, measure, rating, startedOn, totalAmount } = draft;
+      if (!bookDraft.title.trim() || !isValidDemoDate(startedOn) || !isValidDemoDate(finishedOn) || finishedOn < startedOn || !isValidDemoRating(rating)) {
+        throw new Error('The finished Book details are invalid.');
+      }
+      if (bookDraft.pageCount !== null && (!Number.isInteger(bookDraft.pageCount) || bookDraft.pageCount < 1)) {
+        throw new Error('The Book page count must be a positive whole number.');
+      }
+      if (totalAmount !== null && (!Number.isInteger(totalAmount) || totalAmount < 0)) {
+        throw new Error('The reading total must be a non-negative whole number.');
+      }
+
+      const configuration = totalAmount !== null && totalAmount > 0
+        ? configurationForFinishedDate(store, measure, finishedOn, startedOn)
+        : null;
+      const category = configuration && totalAmount !== null ? categoryForAmount(configuration.categories, totalAmount) : null;
+
+      const existingBook = findMatchingBook(store.books, bookDraft);
+      const book: Book = existingBook ?? { ...bookDraft, title: bookDraft.title.trim(), id: `local-book-${nextId(store)}` };
+      if (!existingBook) store.books.push(book);
+
+      const currentAttempt = store.attempts.find((attempt) => attempt.isCurrent && attempt.bookId === book.id);
+      const attempt = currentAttempt ?? createAttempt(store, book, startedOn, false);
+      if (!currentAttempt) store.attempts.push(attempt);
+      updateAttempt(store, attempt.id, { startedOn, finishedOn, rating, isCurrent: false });
+      store.tbrBookIds = store.tbrBookIds.filter((id) => id !== book.id);
+      if (!store.shelfBookIds.includes(book.id)) store.shelfBookIds.push(book.id);
+
+      if (totalAmount !== null && totalAmount > 0) {
+        if (!configuration || !category) throw new Error('The reading total does not fit a reading category.');
+        store.logs.push({
+          id: `local-log-${nextId(store)}`,
+          attemptId: attempt.id,
+          bookId: book.id,
+          bookTitle: book.title,
+          configurationId: configuration.id,
+          date: finishedOn,
+          amount: totalAmount,
+          measure,
+          categoryPosition: category.position,
+        });
+      }
+      return { ...book };
     },
     async saveConfiguration(draft) {
       const configuration: ReadingConfiguration = {
@@ -478,6 +534,47 @@ function findAttemptForDate(attempts: ReadingAttempt[], bookId: string, date: st
 
 function categoryForAmount(categories: ReadingCategory[], amount: number): ReadingCategory | undefined {
   return categories.find((category) => amount >= category.minimum && (category.maximum === null || amount <= category.maximum));
+}
+
+function configurationForFinishedDate(
+  store: LocalBookStore,
+  measure: ReadingConfiguration['measure'],
+  finishedOn: string,
+  fallbackStartsOn: string,
+): ReadingConfiguration {
+  const existing = store.configurations
+    .filter((configuration) => configuration.startsOn <= finishedOn)
+    .sort((left, right) => right.startsOn.localeCompare(left.startsOn))[0];
+  if (existing) {
+    if (existing.measure !== measure) throw new Error('Use the reading measure assigned to this finish date.');
+    return existing;
+  }
+
+  const upperLimits = measure === 'chapters' ? [1, 3, 5, 10, null] : [10, 30, 60, 120, null];
+  const palette = ['#EFE4E7', '#D7B5C0', '#B98598', '#896878', '#5A4351'];
+  let minimum = 1;
+  const configuration: ReadingConfiguration = {
+    id: `local-configuration-${nextId(store)}`,
+    measure,
+    startsOn: fallbackStartsOn,
+    categories: upperLimits.map((maximum, position) => {
+      const category = { position, minimum, maximum, color: palette[position] };
+      if (maximum !== null) minimum = maximum + 1;
+      return category;
+    }),
+  };
+  store.configurations.push(configuration);
+  return configuration;
+}
+
+function isValidDemoDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() + 1 === month && date.getUTCDate() === day;
 }
 
 function isValidDemoRating(rating: number): boolean {

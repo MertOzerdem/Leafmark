@@ -8,7 +8,7 @@ const types: Array<{ type: BookPageFieldType; label: string }> = [
   { type: 'text', label: 'Text' },
   { type: 'multiline', label: 'Notes' },
   { type: 'list', label: 'List' },
-  { type: 'image', label: 'Image link' },
+  { type: 'image', label: 'Image upload' },
 ];
 
 export function BookPageTemplateEditor({ onBack, pages }: { pages: BookPageRepository; onBack(): void }) {
@@ -85,7 +85,7 @@ export function BookPageTemplateEditor({ onBack, pages }: { pages: BookPageRepos
 
   return (
     <View style={styles.panel} testID="book-page-template">
-      <Pressable accessibilityRole="button" onPress={onBack} style={styles.backButton}><Text style={styles.secondaryText}>‹ Read Books</Text></Pressable>
+      <Pressable accessibilityRole="button" onPress={onBack} style={styles.backButton}><Text style={styles.secondaryText}>‹ Settings</Text></Pressable>
       <Text style={styles.title}>Book page template</Text>
       <Text style={styles.copy}>Fields here appear on every Book page, including books already in your library. Saved values stay with each Book.</Text>
       {fields.map((field, index) => (
